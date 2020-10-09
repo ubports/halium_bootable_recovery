@@ -103,7 +103,7 @@ service recovery /system/bin/recovery
     socket recovery stream 422 system system
     seclabel u:r:recovery:s0
 
-service adbd /system/bin/adbd --root_seclabel=u:r:su:s0 --device_banner=recovery
+service adbd /system/bin/adbd --device_banner=recovery
     disabled
     socket adbd stream 660 system system
     seclabel u:r:adbd:s0
