@@ -1,0 +1,20 @@
+#!/sbin/sh
+
+SYSTEM_IMAGE=$1
+
+echo "test" > /test.log
+
+if [ ! -f "$SYSTEM_IMAGE" ]; then
+    echo "Usage: $0 system.img"
+    sleep 10
+    exit 1
+fi
+
+echo "Mounting system partition"
+mkdir /a; if [ -e emmc@android ]; then mount emmc@android /a; else mount /data; fi
+mount /data/system.img /a;
+
+sleep 10
+
+echo "Copying android system image..."
+cp $SYSTEM_IMAGE /a/var/lib/lxc/android/system.img >/dev/null 2>&1 &

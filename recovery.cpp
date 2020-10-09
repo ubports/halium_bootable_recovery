@@ -75,6 +75,7 @@
 #include "stub_ui.h"
 #include "ui.h"
 #include "volclient.h"
+#include "ubupdater.h"
 
 // For e2fsprogs
 extern "C" {
@@ -151,6 +152,7 @@ static const struct option OPTIONS[] = {
   { "show_text", no_argument, NULL, 't' },
   { "sideload", no_argument, NULL, 's' },
   { "sideload_auto_reboot", no_argument, NULL, 'a' },
+  { "update-ubuntu", no_argument, NULL, 'v' },
   { "just_exit", no_argument, NULL, 'x' },
   { "locale", required_argument, NULL, 'l' },
   { "shutdown_after", no_argument, NULL, 'p' },
@@ -168,6 +170,9 @@ static const std::vector<std::string> bootreason_blacklist {
   "Panic",
 };
 
+static const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
+static const char *UBUNTU_ARGUMENT = "--update-ubuntu";
+static const char *UBUNTU_UPDATE_SCRIPT = "/sbin/system-image-upgrader";
 static const char *CACHE_LOG_DIR = "/cache/recovery";
 static const char *COMMAND_FILE = "/cache/recovery/command";
 static const char *LOG_FILE = "/cache/recovery/log";
@@ -261,10 +266,10 @@ bool userdata_encrypted = true;
 
 // Open a given path, mounting partitions as necessary.
 FILE* fopen_path(const char* path, const char* mode) {
-  if (ensure_path_mounted(path) != 0) {
+  /*if (ensure_path_mounted(path) != 0) {
     LOG(ERROR) << "Can't mount " << path;
     return nullptr;
-  }
+  }*/
 
   // When writing, try to create the containing directory, if necessary. Use generous permissions,
   // the system (init.rc) will reset them.
@@ -456,6 +461,18 @@ static std::vector<std::string> get_args(const int argc, char** const argv) {
     } else if (boot.recovery[0] != 0) {
       LOG(ERROR) << "Bad boot message: \"" << boot_recovery << "\"";
     }
+  }
+
+  // ----if that doesn't work, try Ubuntu command file
+  if (args.size() <= 1) {
+      FILE *fp = fopen_path(UBUNTU_COMMAND_FILE, "r");
+      if (fp != NULL) {
+          // there is Ubuntu command file, use it
+          // there is no need to read file content for now
+          check_and_fclose(fp, UBUNTU_COMMAND_FILE);
+          args.push_back(std::string(UBUNTU_ARGUMENT));
+          LOG(INFO) << "Got arguments from " << UBUNTU_COMMAND_FILE;
+      }
   }
 
   // --- if that doesn't work, try the command file (if we have /cache).
@@ -1738,6 +1755,7 @@ int main(int argc, char **argv) {
   bool sideload_auto_reboot = false;
   bool just_exit = false;
   bool shutdown_after = false;
+  const char *update_ubuntu_package = NULL;
   int retry_count = 0;
   bool security_update = false;
 
@@ -1776,6 +1794,9 @@ int main(int argc, char **argv) {
         break;
       case 'p':
         shutdown_after = true;
+        break;
+      case 'v':
+        update_ubuntu_package = UBUNTU_UPDATE_SCRIPT;
         break;
       case 'r':
         reason = optarg;
@@ -1921,6 +1942,9 @@ int main(int argc, char **argv) {
         }
       }
     }
+  } else if (update_ubuntu_package != NULL) {
+    if (access(UBUNTU_COMMAND_FILE, F_OK) != -1 )
+      status = do_ubuntu_update(ui);
   } else if (should_wipe_data) {
     if (!wipe_data(device)) {
       status = INSTALL_ERROR;

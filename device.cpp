@@ -23,7 +23,6 @@
 static const menu_type_t MAIN_MENU_TYPE = MT_GRID;
 static const MenuItem MAIN_MENU_ITEMS[] = {
   MenuItem("Reboot", "ic_reboot", "ic_reboot_sel"),
-  MenuItem("Apply update", "ic_system_update", "ic_system_update_sel"),
   MenuItem("Factory reset", "ic_factory_reset", "ic_factory_reset_sel"),
   MenuItem("Advanced", "ic_options_advanced", "ic_options_advanced_sel"),
 };
@@ -31,7 +30,6 @@ static const MenuItemVector main_menu_items_ =
     MenuItemVector(MAIN_MENU_ITEMS, MAIN_MENU_ITEMS + ARRAY_SIZE(MAIN_MENU_ITEMS));
 static const Device::BuiltinAction MAIN_MENU_ACTIONS[] = {
   Device::REBOOT,
-  Device::APPLY_UPDATE,
   Device::WIPE_MENU,
   Device::ADVANCED_MENU,
 };

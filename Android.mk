@@ -84,6 +84,7 @@ LOCAL_SRC_FILES := \
     volclient.cpp \
     vr_ui.cpp \
     wear_ui.cpp \
+    ubupdater.cpp
 
 LOCAL_MODULE := recovery
 
@@ -214,7 +215,8 @@ LOCAL_STATIC_LIBRARIES += \
     libcutils \
     liblog \
     libselinux \
-    libz
+    libz \
+    libcrecovery
 
 LOCAL_WHOLE_STATIC_LIBRARIES += \
     libawk_main
@@ -304,7 +306,9 @@ endif
 LOCAL_REQUIRED_MODULES += \
     toybox_static \
     recovery_mkshrc \
-    bu_recovery
+    bu_recovery \
+    static_gpg \
+    static_busybox
 
 # Symlinks
 RECOVERY_TOOLS := \
@@ -316,7 +320,9 @@ RECOVERY_TOOLS := \
     zip \
     awk \
     $(FILESYSTEM_TOOLS)
-LOCAL_POST_INSTALL_CMD := $(hide) $(foreach t,$(RECOVERY_TOOLS),ln -sf ${LOCAL_MODULE} $(LOCAL_MODULE_PATH)/$(t);)
+
+LOCAL_POST_INSTALL_CMD := \
+    $(hide) $(foreach t,$(RECOVERY_TOOLS),ln -sf ${LOCAL_MODULE} $(LOCAL_MODULE_PATH)/$(t);)
 
 ifneq ($(TARGET_RECOVERY_DEVICE_MODULES),)
     LOCAL_REQUIRED_MODULES += $(TARGET_RECOVERY_DEVICE_MODULES)
@@ -480,6 +486,49 @@ LOCAL_MODULE := librecovery_ui_vr
 
 include $(BUILD_STATIC_LIBRARY)
 
+# UBports files
+# ===============================
+include $(CLEAR_VARS)
+LOCAL_MODULE := system-image-upgrader
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+LOCAL_SRC_FILES := $(LOCAL_MODULE)
+include $(BUILD_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := replace-system
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+LOCAL_SRC_FILES := $(LOCAL_MODULE)
+include $(BUILD_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := install-system
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+LOCAL_SRC_FILES := $(LOCAL_MODULE)
+include $(BUILD_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := archive-master.tar.xz
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_ETC
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/etc/system-image
+LOCAL_SRC_FILES := archive-master.tar.xz
+include $(BUILD_PREBUILT)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := archive-master.tar.xz.asc
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_ETC
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/etc/system-image
+LOCAL_SRC_FILES := archive-master.tar.xz.asc
+include $(BUILD_PREBUILT)
+
+
 include \
     $(LOCAL_PATH)/boot_control/Android.mk \
     $(LOCAL_PATH)/minadbd/Android.mk \
@@ -488,3 +537,4 @@ include \
     $(LOCAL_PATH)/tools/Android.mk \
     $(LOCAL_PATH)/updater/Android.mk \
     $(LOCAL_PATH)/update_verifier/Android.mk \
+    $(LOCAL_PATH)/libcrecovery/Android.mk
