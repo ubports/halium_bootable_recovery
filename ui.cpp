@@ -87,13 +87,13 @@ RecoveryUI::RecoveryUI()
       screensaver_state_(ScreensaverState::DISABLED) {
   char propval[PROPERTY_VALUE_MAX];
   property_get("ro.build.version.release", propval, "(unknown)");
-  android_version_ = std::string("Android ") + propval;
+  android_version_ = std::string("Halium ") + propval;
   property_get("ro.boot.slot_suffix", propval, "");
   if (propval[0] == '_') {
       boot_slot_ = std::string("Slot ") + &propval[1];
   }
-  property_get("ro.lineage.version", propval, "(unknown)");
-  lineage_version_ = std::string("LineageOS ") + propval;
+  //property_get("ro.lineage.version", propval, "(unknown)");
+  //lineage_version_ = std::string("LineageOS ") + propval;
 
   pthread_mutex_init(&event_queue_mutex, nullptr);
   pthread_cond_init(&event_queue_cond, nullptr);
