@@ -187,6 +187,8 @@ static const char *TEMPORARY_LOG_FILE = "/tmp/recovery.log";
 static const char *TEMPORARY_INSTALL_FILE = "/tmp/last_install";
 static const char *LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 static const char *LAST_LOG_FILE = "/cache/recovery/last_log";
+static const char *SYSTEM_IMAGE_UPGRADER_LOG_FILE = "/cache/system-image-upgrader.log";
+static const char *UBUNTU_UPDATER_LOG_FILE = "/cache/ubuntu_updater.log";
 // We will try to apply the update package 5 times at most in case of an I/O error or
 // bspatch | imgpatch error.
 static const int RETRY_LIMIT = 4;
@@ -932,6 +934,8 @@ static bool wipe_data(Device* device) {
     modified_flash = true;
 
     ui->Print("\n-- Wiping data...\n");
+    system("umount /cache");
+    system("umount /data");
     bool success = device->PreWipeData();
     if (success) {
       success &= erase_volume(DATA_ROOT);
@@ -1151,6 +1155,16 @@ static int choose_recovery_file(Device* device) {
   if (access(TEMPORARY_LOG_FILE, R_OK) != -1) {
     entries.push_back(TEMPORARY_LOG_FILE);
   }
+
+  // Add Ubuntu Touch specific log paths
+  if (access(SYSTEM_IMAGE_UPGRADER_LOG_FILE, R_OK) != -1) {
+    entries.push_back(SYSTEM_IMAGE_UPGRADER_LOG_FILE);
+  }
+
+  if (access(UBUNTU_UPDATER_LOG_FILE, R_OK) != -1) {
+    entries.push_back(UBUNTU_UPDATER_LOG_FILE);
+  }
+
   if (has_cache) {
     for (int i = 0; i < KEEP_LOG_COUNT; i++) {
       auto add_to_entries = [&](const char* filename) {
