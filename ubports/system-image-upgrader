@@ -282,11 +282,15 @@ swapon /cache/recovery/SWAP.img
 
 # Check the kernel command line to see whether Ubuntu should be installed to a partition
 # or in a file that is loop mounted.
-if grep -q systempart= /proc/cmdline; then
-    USE_SYSTEM_PARTITION=1
-else
-    USE_SYSTEM_PARTITION=0
-fi
+#if grep -q systempart= /proc/cmdline; then
+#    USE_SYSTEM_PARTITION=1
+#else
+#    USE_SYSTEM_PARTITION=0
+#fi
+
+# Force usage of system partition for now, the existance of Android 9.0 devices
+# with a too small system partition is questionable at this point.
+USE_SYSTEM_PARTITION=1
 
 # However, do not use the block device name in the kernel command line, as that is not consistently
 # named in booting normal and recovery modes. Expect fstab to have a system mountpoint or use a fallback.
