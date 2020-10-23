@@ -575,4 +575,6 @@ echo "Done upgrading: $(date)" >> /cache/system-image-upgrader.log
 # else filling $HOME can make the system unusable since writable
 # files and dirs share the space with $HOME and android does not
 # reserve root space in /data
+mount /data
 tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//') >> /cache/system-image-upgrader.log
+umount /data
