@@ -307,8 +307,7 @@ LOCAL_REQUIRED_MODULES += \
     toybox_static \
     recovery_mkshrc \
     bu_recovery \
-    static_gpg \
-    static_busybox
+    static_gpg
 
 # Symlinks
 RECOVERY_TOOLS := \
@@ -528,6 +527,14 @@ LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/etc/system-image
 LOCAL_SRC_FILES := archive-master.tar.xz.asc
 include $(BUILD_PREBUILT)
 
+include $(CLEAR_VARS)
+LOCAL_MODULE := busybox_recovery
+LOCAL_SRC_FILES := ../../external/busybox/busybox
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_MODULE_STEM := busybox
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+include $(BUILD_PREBUILT)
 
 include \
     $(LOCAL_PATH)/boot_control/Android.mk \
