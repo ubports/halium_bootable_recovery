@@ -317,11 +317,11 @@ do
                     if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
                         echo "system partition: $SYSTEM_PARTITION"
                         umount /system_root || true
-                        make_ext4fs $SYSTEM_PARTITION
+                        mkfs.ext4 $SYSTEM_PARTITION
                     else
                         rm -f /data/rootfs.img
                         dd if=/dev/zero of=/data/rootfs.img seek=500K bs=4096 count=0
-                        mkfs.ext2 -F /data/rootfs.img
+                        mkfs.ext4 -F /data/rootfs.img
                     fi
                 ;;
 
