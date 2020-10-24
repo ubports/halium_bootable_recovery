@@ -175,10 +175,10 @@ bool VolumeManager::start(VolumeWatcher* watcher) {
         LOG(ERROR) << "Error reading configuration... continuing anyway";
     }
 
-    if (!data_rec.fs_type.empty()) {
+    /*if (!data_rec.fs_type.empty()) {
         mInternalEmulated = new EmulatedVolume(&data_rec, "media/0");
         mInternalEmulated->create();
-    }
+    }*/
 
     if (!mNetlinkManager->start()) {
         LOG(ERROR) << "Unable to start NetlinkManager";
