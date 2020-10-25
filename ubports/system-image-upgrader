@@ -512,6 +512,7 @@ do
                 if [ -e partitions/${part}.img ] && [ -e $path ]; then
                     echo "Flashing ${part} at ${path}"
                     cat partitions/${part}.img > ${path}
+                    sync
                     rm partitions/${part}.img
                 fi
             done
@@ -578,3 +579,5 @@ echo "Done upgrading: $(date)" >> /cache/system-image-upgrader.log
 mount /data
 tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//') >> /cache/system-image-upgrader.log
 umount /data
+
+sync
