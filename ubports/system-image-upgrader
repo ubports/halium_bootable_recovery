@@ -498,6 +498,15 @@ do
             xzcat recovery/$2 | tar --numeric-owner -xf -
             rm -f removed
 
+            # WORKAROUND: fix erroneous vendor symlink
+            if [ -h "$SYSTEM_MOUNTPOINT/vendor" ]; then
+                VENDOR_SYMLINK_PATH=$(readlink $SYSTEM_MOUNTPOINT/vendor)
+                if [ "$VENDOR_SYMLINK_PATH" == "/android/system/vendor" ]; then
+                    rm $SYSTEM_MOUNTPOINT/vendor
+                    ln -s /android/vendor $SYSTEM_MOUNTPOINT/vendor
+                fi
+            fi
+
             # Move things to data
             mv data/* /data/ || true
             rm -Rf data || true
