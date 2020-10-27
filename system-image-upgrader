@@ -261,22 +261,6 @@ if [ -e /etc/system-image/archive-master.tar.xz ]; then
     install_keyring /etc/system-image/archive-master.tar.xz /etc/system-image/archive-master.tar.xz.asc
 fi
 
-# Initialize recovery SWAP
-## Without a swap some systems will fail to install the ubuntu rootfs (due its size)
-if [ ! -e /cache/recovery/SWAP.img ]; then
-    # Determine size based on device maintainer preference, set in the kernel
-    # cmdline. This falls back to using 32MB for the total swap file size.
-    if grep -q siu.swapsize= /proc/cmdline; then
-        swap_size=$(cat /proc/cmdline | sed "s/ /\n/g" | grep siu.swapsize= | awk -F "=" '{ print $2 }')
-    else
-        swap_size=32
-    fi
-    echo "Swap size: $swap_size MB"
-    dd if=/dev/zero of=/cache/recovery/SWAP.img bs=1M count=$swap_size
-    mkswap /cache/recovery/SWAP.img
-fi
-swapon /cache/recovery/SWAP.img
-
 # Check the kernel command line to see whether Ubuntu should be installed to a partition
 # or in a file that is loop mounted.
 #if grep -q systempart= /proc/cmdline; then
@@ -323,8 +307,9 @@ do
                 ;;
 
                 data)
+                    mount /data
                     for entry in /data/* /data/.writable_image /data/.factory_wipe; do
-                        if [ "$USE_SYSTEM_PARTITION" -eq 0 ];then
+                        if [ "$USE_SYSTEM_PARTITION" -eq 0 ]; then
                             if [ "$entry" == "/data/rootfs.img" ]; then
                                     continue
                             fi
@@ -336,11 +321,24 @@ do
                             continue
                         fi
 
-                        rm -Rf $entry
+                        # If this is android-data, inspect closer as we need the
+                        # cache "partition" to stay functioning during use of the
+                        # system-image-upgrader script. It is bind mounted
+                        # and leads to premature cancellation otherwise.
+                        if [ "$entry" == "/data/android-data" ]; then
+                            for android_data_entry in /data/android-data/*; do
+                                if [ "$android_data_entry" != "/data/android-data/cache" ]; then
+                                    rm -Rf $android_data_entry
+                                fi
+                            done
+                        else
+                            rm -Rf $entry
+                        fi
                     done
                     # mtp is always enabled by default
                     usb_enable mtp
                     DATA_FORMAT=1
+                    umount /data
                 ;;
 
                 *)
@@ -535,10 +533,6 @@ do
     esac
 done < $COMMAND_FILE
 
-# Remove temporary SWAP
-swapoff /cache/recovery/SWAP.img
-rm -f /cache/recovery/SWAP.img
-
 # Remove the update files
 for file in $REMOVE_LIST; do
     rm -f $file
@@ -546,32 +540,15 @@ done
 
 # If a previous SWAP of 512MB is available, remove
 if [ -e /data/SWAP.img ]; then
-    swap_size=`stat /data/SWAP.img | grep Size | awk -F' ' '{print $2}'`
-    if [ "$swap_size" = "536870912" ]; then
-        echo "Removing old 512MB swap file."
-        rm -f /data/SWAP.img
-    fi
+    echo "Removing obsolete SWAP.img"
+    rm -f /data/SWAP.img
 fi
-
-# Create the SWAP image if missing
-# Here we only want a small SWAP to be created, as we found out
-# that the kernel memory manager algorithm behaves better if swap
-# is available, even if a minimal one (not to be used by the system)
-if [ ! -e /data/SWAP.img ]; then
-    echo "Creating SWAP device (32MB)."
-    dd if=/dev/zero of=/data/SWAP.img bs=4096 count=8192
-    mkswap /data/SWAP.img
-fi
-
-
 
 # Ensure we have sane permissions
 if [ "$USE_SYSTEM_PARTITION" -eq 0 ];then
     chmod 600 /data/rootfs.img
     chown 0:0 /data/rootfs.img
 fi
-chmod 600 /data/SWAP.img
-chown 0:0 /data/SWAP.img
 
 touch /data/.last_update || true
 sync
