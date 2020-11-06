@@ -226,7 +226,7 @@ status_t ForkExecvp(const std::vector<std::string>& args) {
     return ForkExecvp(args, nullptr);
 }
 
-status_t ForkExecvp(const std::vector<std::string>& args, security_context_t context) {
+status_t ForkExecvp(const std::vector<std::string>& args, security_context_t) {
     std::vector<std::string> output;
     size_t argc = args.size();
     char** argv = (char**)calloc(argc + 1, sizeof(char*));
@@ -237,11 +237,6 @@ status_t ForkExecvp(const std::vector<std::string>& args, security_context_t con
         } else {
             LOG(VERBOSE) << "    " << args[i];
         }
-    }
-
-    if (setexeccon(context)) {
-        LOG(ERROR) << "Failed to setexeccon";
-        abort();
     }
 
     pid_t pid = fork();
@@ -256,11 +251,6 @@ status_t ForkExecvp(const std::vector<std::string>& args, security_context_t con
         }
 
         _exit(1);
-    }
-
-    if (setexeccon(nullptr)) {
-        LOG(ERROR) << "Failed to setexeccon";
-        abort();
     }
 
     if (pid == -1) {
