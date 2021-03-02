@@ -279,7 +279,7 @@ if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
     SYSTEM_PARTITION=$(grep "^[^#]" /etc/fstab | grep "/system_root" | cut -f 1 -d\ )
     #Fall back to emmc@android if there's no system in fstab
     if [ "$SYSTEM_PARTITION" == "" ]; then
-        SYSTEM_PARTITION = "emmc@android"
+        SYSTEM_PARTITION="emmc@android"
     fi
 fi
 
