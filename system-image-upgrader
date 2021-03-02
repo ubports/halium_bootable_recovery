@@ -310,7 +310,7 @@ do
                     mount /data
                     for entry in /data/* /data/.writable_image /data/.factory_wipe; do
                         if [ "$USE_SYSTEM_PARTITION" -eq 0 ]; then
-                            if [[ ( "$entry" == "/data/rootfs.img" ) || ( "$entry" == "/data/system.img" ) ]]; then
+                            if [[ ( "$entry" == "/data/rootfs.img" ) || ( "$entry" == "/data/android-rootfs.img" ) ]]; then
                                     continue
                             fi
                         fi
