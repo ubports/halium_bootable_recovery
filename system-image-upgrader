@@ -297,6 +297,7 @@ do
                     FULL_IMAGE=1
                     # Cleanup files left from halium-install
                     rm -f /data/system.img
+                    rm -f /data/android-rootfs.img
                     rm -f /data/rootfs.img
                     # Delete ubuntu.img if present. Either its a leftover, or we recreate it
                     rm -f /data/ubuntu.img
@@ -315,7 +316,7 @@ do
                     mount /data
                     for entry in /data/* /data/.writable_image /data/.factory_wipe; do
                         if [ "$USE_SYSTEM_PARTITION" -eq 0 ]; then
-                            if [[ ( "$entry" == "/data/ubuntu.img" ) || ( "$entry" == "/data/rootfs.img" ) || ( "$entry" == "/data/system.img" ) ]]; then
+                            if [[ ( "$entry" == "/data/ubuntu.img" ) || ( "$entry" == "/data/rootfs.img" ) || ( "$entry" == "/data/system.img" ) || ( "$entry" == "/data/android-rootfs.img" ) ]]; then
                                     continue
                             fi
                         fi
