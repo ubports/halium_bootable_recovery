@@ -1667,7 +1667,8 @@ static void copy_userdata_files() {
         file_copy(adb_keys_data, adb_keys_root);
       }
     }
-    ensure_path_unmounted("/data");
+    //Disabled for UBports, some devices seem to do this and then the installer copies into void
+    //ensure_path_unmounted("/data");
   }
 }
 
