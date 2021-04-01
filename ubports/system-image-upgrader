@@ -291,26 +291,32 @@ do
     set -- $line
     case "$1" in
         format)
-            echo "Formating: $2"
+            echo "Formatting: $2"
             case "$2" in
                 system)
                     FULL_IMAGE=1
+                    # Cleanup files left from halium-install
+                    rm -f /data/system.img
+                    rm -f /data/android-rootfs.img
+                    rm -f /data/rootfs.img
+                    # Delete ubuntu.img if present. Either its a leftover, or we recreate it
+                    rm -f /data/ubuntu.img
                     if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
                         echo "system partition: $SYSTEM_PARTITION"
                         umount /system_root || true
                         mkfs.ext4 $SYSTEM_PARTITION
                     else
-                        rm -f /data/rootfs.img
-                        dd if=/dev/zero of=/data/rootfs.img seek=500K bs=4096 count=0
-                        mkfs.ext4 -F /data/rootfs.img
+                        # We need to use legacy image name here, halium-boot needs this to decide file layout
+                        dd if=/dev/zero of=/data/ubuntu.img seek=500K bs=4096 count=0
+                        mkfs.ext2 -F /data/ubuntu.img
                     fi
                 ;;
 
                 data)
-                    mount /data
+                    mount /data || true
                     for entry in /data/* /data/.writable_image /data/.factory_wipe; do
                         if [ "$USE_SYSTEM_PARTITION" -eq 0 ]; then
-                            if [ "$entry" == "/data/rootfs.img" ]; then
+                            if [[ ( "$entry" == "/data/ubuntu.img" ) || ( "$entry" == "/data/rootfs.img" ) || ( "$entry" == "/data/system.img" ) || ( "$entry" == "/data/android-rootfs.img" ) ]]; then
                                     continue
                             fi
                         fi
@@ -435,8 +441,8 @@ do
                         check_filesystem $SYSTEM_PARTITION
                         mount $SYSTEM_PARTITION "$SYSTEM_MOUNTPOINT"
                     else
-                        check_filesystem /data/rootfs.img
-                        mount -o loop /data/rootfs.img "$SYSTEM_MOUNTPOINT/"
+                        check_filesystem /data/ubuntu.img
+                        mount -o loop /data/ubuntu.img "$SYSTEM_MOUNTPOINT/"
                     fi
                 ;;
 
@@ -546,8 +552,8 @@ fi
 
 # Ensure we have sane permissions
 if [ "$USE_SYSTEM_PARTITION" -eq 0 ];then
-    chmod 600 /data/rootfs.img
-    chown 0:0 /data/rootfs.img
+    chmod 600 /data/ubuntu.img
+    chown 0:0 /data/ubuntu.img
 fi
 
 touch /data/.last_update || true
