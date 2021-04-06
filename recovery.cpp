@@ -73,6 +73,7 @@ using android::volmgr::VolumeInfo;
 
 static constexpr const char* COMMAND_FILE = "/cache/recovery/command";
 static constexpr const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
+static constexpr const char* TEMPORARY_KMSG_FILE = "/tmp/last_kmsg";
 static constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 static constexpr const char* LAST_LOG_FILE = "/cache/recovery/last_log";
 static constexpr const char* LOCALE_FILE = "/cache/recovery/last_locale";
@@ -327,6 +328,8 @@ static void choose_recovery_file(Device* device) {
     if (access(Paths::Get().ubuntu_updater_log_file().c_str(), R_OK) != -1) {
       entries.push_back(Paths::Get().ubuntu_updater_log_file());
     }
+
+    entries.push_back(TEMPORARY_KMSG_FILE);
   }
 
   entries.push_back("Back");

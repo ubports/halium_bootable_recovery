@@ -42,6 +42,7 @@
 
 constexpr const char* LOG_FILE = "/cache/recovery/log";
 constexpr const char* LAST_INSTALL_FILE = "/cache/recovery/last_install";
+constexpr const char* TEMPORARY_KMSG_FILE = "/tmp/last_kmsg";
 constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 constexpr const char* LAST_LOG_FILE = "/cache/recovery/last_log";
 
@@ -203,6 +204,8 @@ static void copy_log_file(const std::string& source, const std::string& destinat
 }
 
 void copy_logs(bool save_current_log) {
+  save_kernel_log(TEMPORARY_KMSG_FILE);
+
   // We only rotate and record the log of the current session if explicitly requested. This usually
   // happens after wipes, installation from BCB or menu selections. This is to avoid unnecessary
   // rotation (and possible deletion) of log files, if it does not do anything loggable.
@@ -227,7 +230,7 @@ void copy_logs(bool save_current_log) {
   copy_log_file(Paths::Get().temporary_log_file(), LOG_FILE, true);
   copy_log_file(Paths::Get().temporary_log_file(), LAST_LOG_FILE, false);
   copy_log_file(Paths::Get().temporary_install_file(), LAST_INSTALL_FILE, false);
-  save_kernel_log(LAST_KMSG_FILE);
+  copy_log_file(TEMPORARY_KMSG_FILE, LAST_KMSG_FILE, false);
   chmod(LOG_FILE, 0600);
   chown(LOG_FILE, AID_SYSTEM, AID_SYSTEM);
   chmod(LAST_KMSG_FILE, 0600);
