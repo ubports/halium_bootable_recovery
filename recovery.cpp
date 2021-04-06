@@ -185,6 +185,7 @@ static const char *DATA_ROOT = "/data";
 static const char* METADATA_ROOT = "/metadata";
 static const char *TEMPORARY_LOG_FILE = "/tmp/recovery.log";
 static const char *TEMPORARY_INSTALL_FILE = "/tmp/last_install";
+static const char *TEMPORARY_KMSG_FILE = "/tmp/last_kmsg";
 static const char *LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 static const char *LAST_LOG_FILE = "/cache/recovery/last_log";
 static const char *SYSTEM_IMAGE_UPGRADER_LOG_FILE = "/cache/system-image-upgrader.log";
@@ -572,6 +573,8 @@ static void copy_log_file(const char* source, const char* destination, bool appe
 }
 
 static void copy_logs() {
+    save_kernel_log(TEMPORARY_KMSG_FILE);
+
     // We only rotate and record the log of the current session if there are
     // actual attempts to modify the flash, such as wipes, installs from BCB
     // or menu selections. This is to avoid unnecessary rotation (and
@@ -597,7 +600,8 @@ static void copy_logs() {
     copy_log_file(TEMPORARY_LOG_FILE, LOG_FILE, true);
     copy_log_file(TEMPORARY_LOG_FILE, LAST_LOG_FILE, false);
     copy_log_file(TEMPORARY_INSTALL_FILE, LAST_INSTALL_FILE, false);
-    save_kernel_log(LAST_KMSG_FILE);
+    copy_log_file(TEMPORARY_KMSG_FILE, LAST_KMSG_FILE, false);
+
     chmod(LOG_FILE, 0600);
     chown(LOG_FILE, AID_SYSTEM, AID_SYSTEM);
     chmod(LAST_KMSG_FILE, 0600);
@@ -1184,6 +1188,8 @@ static int choose_recovery_file(Device* device) {
       // Add LAST_KMSG_FILE + LAST_KMSG_FILE.x
       add_to_entries(LAST_KMSG_FILE);
     }
+  } else {
+    entries.push_back(TEMPORARY_KMSG_FILE);
   }
   if (entries.empty()) {
     // Should never happen
