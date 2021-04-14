@@ -49,7 +49,7 @@ using android::dm::DeviceMapper;
 using android::dm::DmDeviceState;
 
 static void write_fstab_entry(const FstabEntry& entry, FILE* file) {
-  if (entry.fs_type != "emmc" && !entry.fs_mgr_flags.vold_managed && !entry.blk_device.empty() &&
+  if (!entry.fs_mgr_flags.vold_managed && !entry.blk_device.empty() &&
       entry.blk_device[0] == '/' && !entry.mount_point.empty() && entry.mount_point[0] == '/') {
     fprintf(file, "%s ", entry.blk_device.c_str());
     fprintf(file, "%s ", entry.mount_point.c_str());
