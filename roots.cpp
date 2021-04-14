@@ -54,7 +54,7 @@ static struct fstab* fstab = nullptr;
 extern struct selabel_handle* sehandle;
 
 static void write_fstab_entry(const Volume* v, FILE* file) {
-  if (v && strcmp(v->fs_type, "mtd") != 0 && strcmp(v->fs_type, "emmc") != 0 &&
+  if (v && strcmp(v->fs_type, "mtd") != 0 &&
       strcmp(v->fs_type, "bml") != 0 && !fs_mgr_is_voldmanaged(v) &&
       strncmp(v->blk_device, "/", 1) == 0 && strncmp(v->mount_point, "/", 1) == 0) {
     fprintf(file, "%s ", v->blk_device);
