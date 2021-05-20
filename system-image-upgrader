@@ -521,7 +521,11 @@ do
 
                 if [ -e partitions/${part}.img ] && [ -e $path ]; then
                     echo "Flashing ${part} at ${path}"
-                    cat partitions/${part}.img > ${path}
+                    if simgtest partitions/${part}.img; then
+                        simg2img partitions/${part}.img ${path}
+                    else
+                        dd bs=8M if=partitions/${part}.img of=${path}
+                    fi
                     sync
                     rm partitions/${part}.img
                 fi

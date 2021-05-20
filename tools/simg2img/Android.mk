@@ -1,0 +1,26 @@
+LOCAL_PATH := $(call my-dir)
+
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES := simg2img.c sparse_crc32.c
+LOCAL_MODULE := simg2img_recovery
+LOCAL_MODULE_STEM := simg2img
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_STATIC_LIBRARIES := libsparse libz libbase libc++_static
+LOCAL_CFLAGS := -Werror
+LOCAL_FORCE_STATIC_EXECUTABLE := true
+LOCAL_PACK_MODULE_RELOCATIONS := false
+include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES := simgtest.c
+LOCAL_MODULE := simgtest
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/sbin
+LOCAL_MODULE_TAGS := optional eng debug
+LOCAL_MODULE_CLASS := RECOVERY_EXECUTABLES
+LOCAL_STATIC_LIBRARIES := libsparse libz libbase libc++_static
+LOCAL_CFLAGS := -Werror
+LOCAL_FORCE_STATIC_EXECUTABLE := true
+LOCAL_PACK_MODULE_RELOCATIONS := false
+include $(BUILD_EXECUTABLE)
