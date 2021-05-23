@@ -188,7 +188,6 @@ static const char *TEMPORARY_INSTALL_FILE = "/tmp/last_install";
 static const char *TEMPORARY_KMSG_FILE = "/tmp/last_kmsg";
 static const char *LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 static const char *LAST_LOG_FILE = "/cache/recovery/last_log";
-static const char *SYSTEM_IMAGE_UPGRADER_LOG_FILE = "/cache/system-image-upgrader.log";
 static const char *UBUNTU_UPDATER_LOG_FILE = "/cache/ubuntu_updater.log";
 // We will try to apply the update package 5 times at most in case of an I/O error or
 // bspatch | imgpatch error.
@@ -1158,11 +1157,6 @@ static int choose_recovery_file(Device* device) {
   std::vector<std::string> entries;
   if (access(TEMPORARY_LOG_FILE, R_OK) != -1) {
     entries.push_back(TEMPORARY_LOG_FILE);
-  }
-
-  // Add Ubuntu Touch specific log paths
-  if (access(SYSTEM_IMAGE_UPGRADER_LOG_FILE, R_OK) != -1) {
-    entries.push_back(SYSTEM_IMAGE_UPGRADER_LOG_FILE);
   }
 
   if (access(UBUNTU_UPDATER_LOG_FILE, R_OK) != -1) {
