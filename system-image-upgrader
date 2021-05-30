@@ -271,7 +271,12 @@ fi
 
 # Force usage of system partition for now, the existance of Android 9.0 devices
 # with a too small system partition is questionable at this point.
-USE_SYSTEM_PARTITION=1
+# As we speak, Google Pixel has only 2GB system partition, so lets make this overridable
+if [ -e disable_syspart ]; then
+    USE_SYSTEM_PARTITION=0
+else
+    USE_SYSTEM_PARTITION=1
+fi
 
 # However, do not use the block device name in the kernel command line, as that is not consistently
 # named in booting normal and recovery modes. Expect fstab to have a system mountpoint or use a fallback.
