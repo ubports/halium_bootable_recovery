@@ -1,6 +1,7 @@
 #!/sbin/sh
 set -e
-echo "Starting image Upgrade pre" > /cache/system-image-upgrader.log
+echo "System Image Upgrader for Ubuntu Touch"
+echo "Preparing command file"
 if [ ! -e "$1" ]; then
     echo "Command file doesn't exist: $1"
     exit 1
@@ -16,7 +17,7 @@ DATA_FORMAT=0
 # System Mountpoint
 SYSTEM_MOUNTPOINT=/cache/system
 
-echo "Starting image upgrader: $(date)" >> /cache/test.log
+echo "Starting image upgrader"
 
 # Functions
 check_filesystem() {
@@ -285,7 +286,7 @@ fi
 
 # Process the command file
 FULL_IMAGE=0
-echo "Processing the command file" >> /cache/system-image-upgrader.log
+echo "Processing command file"
 while read line
 do
     set -- $line
@@ -563,14 +564,14 @@ fi
 touch /data/.last_update || true
 sync
 
-echo "Done upgrading: $(date)" >> /cache/system-image-upgrader.log
+echo "Done upgrading..."
 
 # Make sure there are always 5% reserved in /data for root usage
 # else filling $HOME can make the system unusable since writable
 # files and dirs share the space with $HOME and android does not
 # reserve root space in /data
 mount /data
-tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//') >> /cache/system-image-upgrader.log
+tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//')
 umount /data
 
 sync
