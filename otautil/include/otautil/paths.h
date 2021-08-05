@@ -83,6 +83,13 @@ class Paths {
     temporary_update_binary_ = update_binary;
   }
 
+  std::string ubuntu_updater_log_file() const {
+    return ubuntu_updater_log_file_;
+  }
+  void set_ubuntu_updater_log_file(const std::string& log_file) {
+    ubuntu_updater_log_file_ = log_file;
+  }
+
  private:
   Paths();
   DISALLOW_COPY_AND_ASSIGN(Paths);
@@ -113,6 +120,9 @@ class Paths {
 
   // Path to the temporary update binary while installing a non-A/B package.
   std::string temporary_update_binary_;
+
+  // Path to the ubuntu updater log file.
+  std::string ubuntu_updater_log_file_;
 };
 
 #endif  // _OTAUTIL_PATHS_H_

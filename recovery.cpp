@@ -322,6 +322,11 @@ static void choose_recovery_file(Device* device) {
     } else {
       entries.push_back(Paths::Get().temporary_log_file());
     }
+
+    // Add Ubuntu Touch specific log paths
+    if (access(Paths::Get().ubuntu_updater_log_file().c_str(), R_OK) != -1) {
+      entries.push_back(Paths::Get().ubuntu_updater_log_file());
+    }
   }
 
   entries.push_back("Back");
