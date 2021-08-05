@@ -155,6 +155,8 @@ bool WipeData(Device* device, bool convert_fbe) {
   }
 
   bool success = device->PreWipeData();
+  system("umount /cache");
+  system("umount /data");
   if (success) {
     success &= EraseVolume(DATA_ROOT, ui, convert_fbe);
     bool has_cache = volume_for_mount_point("/cache") != nullptr;
