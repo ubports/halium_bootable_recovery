@@ -81,6 +81,13 @@ cc_defaults {
         "librecovery_utils",
         "libotautil",
         "libsnapshot_nobinder",
+
+        // external dependencies
+        "libhealthhalutils",
+        "libfstab",
+
+        // ubports
+        "ubupdater",
     ],
 }
 
@@ -145,6 +152,18 @@ cc_binary {
         "reboot.recovery",
         "recovery_deps",
         "ueventd.rc.recovery",
+
+        // ubports
+        "archive-master.tar.xz",
+        "archive-master.tar.xz.asc",
+        "e2fsck_recovery",
+        "gpg",
+        "install-system",
+        "replace-system",
+        "simg2img_ubports",
+        "simgtest_ubports",
+        "system-image-upgrader",
+        "tune2fs_recovery",
     ],
 }
 
