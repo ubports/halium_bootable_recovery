@@ -1,0 +1,574 @@
+#!/sbin/sh
+set -e
+echo "Starting image Upgrade pre" > /cache/system-image-upgrader.log
+if [ ! -e "$1" ]; then
+    echo "Command file doesn't exist: $1"
+    exit 1
+fi
+mv $1 $1.applying
+COMMAND_FILE=$1.applying
+
+REMOVE_LIST="$COMMAND_FILE"
+
+# Used as a security check to see if we would change the password
+DATA_FORMAT=0
+
+# System Mountpoint
+SYSTEM_MOUNTPOINT=/cache/system
+
+echo "Starting image upgrader: $(date)" >> /cache/test.log
+
+# Functions
+check_filesystem() {
+    # $1 => image to check (partition or device img)
+    if [ ! -e $1 ]; then
+        echo "Partition/image not found: $1"
+        return 1
+    fi
+
+    # It's fine for e2fsck to return something different than 0
+    set +e
+    e2fsck -yf $1
+    ret=$?
+    # From e2fsck man page:
+    # 0 - No errors
+    # 1 - File system errors corrected
+    if [ $ret -ne 0 ] && [ $ret -ne 1 ]; then
+        echo "e2fsck is unable to fix partition/image $1, aborting (return code $ret)"
+        exit 1
+    fi
+    set -e
+}
+
+verify_signature() {
+    # $1 => validation keyring name
+    # $2 => path to validate
+  #  if [ -e /etc/system-image/skip-gpg-verification ]; then
+     return 0
+  #  fi
+
+    if [ ! -e $2 ]; then
+        echo "File doesn't exist: $2"
+        return 1
+    fi
+
+    # Check against the blacklist
+    if [ -e /tmp/system-image/blacklist/pubring.gpg ]; then
+        export GNUPGHOME=/tmp/system-image/blacklist/
+        if gpg --ignore-time-conflict --verify $2 >/dev/null 2>&1; then
+            echo "File signed by a blacklisted key: $2"
+            return 1
+        fi
+    fi
+
+    # Check against the keyring
+    export GNUPGHOME=/tmp/system-image/$1/
+    if [ ! -e "$GNUPGHOME" ]; then
+        echo "Keyring doesn't exist: $1"
+        return 1
+    fi
+
+    if gpg --ignore-time-conflict --verify $2 >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
+install_keyring() {
+    # $1 => full path to tarball
+    # $2 => full path to signature
+
+    # Some basic checks
+    if [ ! -e "$1" ] || [ ! -e "$2" ]; then
+        echo "Missing keyring files: $1 => $2"
+        return 1
+    fi
+
+    # Unpacking
+    TMPDIR=$(mktemp -d -p /tmp/system-image/ tmp.XXXXXXXXXX)
+    cd $TMPDIR
+    xzcat $1 | tar --numeric-owner -xf -
+    if [ ! -e keyring.json ] || [ ! -e keyring.gpg ]; then
+        rm -Rf $TMPDIR
+        echo "Invalid keyring: $1"
+        return 1
+    fi
+
+    # Extract the expiry
+    keyring_expiry=$(grep "^    \"expiry\": " keyring.json | cut -d: -f2 | sed -e "s/[ \",]//g")
+    if [ -n "$keyring_expiry" ] && [ "$keyring_expiry" -lt "$(date +%s)" ]; then
+        rm -Rf $TMPDIR
+        echo "Keyring expired: $1"
+        return 1
+    fi
+
+    # Extract the keyring type
+    keyring_type=$(grep "^    \"type\": " keyring.json | cut -d: -f2 | sed -e "s/[, \"]//g")
+    if [ -z "$keyring_type" ]; then
+        rm -Rf $TMPDIR
+        echo "Missing keyring type: $1"
+        return 1
+    fi
+
+    if [ -e /tmp/system-image/$keyring_type ]; then
+        rm -Rf $TMPDIR
+        echo "Keyring already loaded: $1"
+        return 1
+    fi
+
+    signer="unknown"
+    case "$keyring_type" in
+        archive-master)
+            signer=""
+        ;;
+
+        image-master)
+            signer="archive-master"
+        ;;
+
+        image-signing|blacklist)
+            signer="image-master"
+        ;;
+
+        device-signing)
+            signer="image-signing"
+        ;;
+    esac
+
+    if [ -n "$signer" ] && ! verify_signature $signer $2; then
+        rm -Rf $TMPDIR
+        echo "Invalid signature: $1"
+        return 1
+    fi
+
+    mkdir /tmp/system-image/$keyring_type
+    chmod 700 /tmp/system-image/$keyring_type
+    mv $TMPDIR/keyring.gpg /tmp/system-image/$keyring_type/pubring.gpg
+    chmod 600 /tmp/system-image/$keyring_type/pubring.gpg
+    chown 0:0 /tmp/system-image/$keyring_type/pubring.gpg
+    rm -Rf $TMPDIR
+    return 0
+}
+
+property_write() {
+    prop="$1"
+    prop_value="$2"
+    prop_dir="/data/android-data/property"
+    # everything is wiped after a format, let's get a skeleton going
+    mkdir -p "$prop_dir"
+    chown 0:0 "$prop_dir"
+    chmod 700 "$prop_dir"
+    echo -n "$prop_value" > "$prop_dir/$prop"
+    # properties won't be read if they aren't ro root
+    chown 0:0 "$prop_dir/$prop"
+    chmod 600 "$prop_dir/$prop"
+}
+
+adb_onlock() {
+    if [ "$DATA_FORMAT" -eq 0 ]; then
+        return 1
+    fi
+
+    flag="/data/.adb_onlock"
+    # if the param != "true" we just delete the flag
+    case $1 in
+        true)
+            touch "$flag"
+        ;;
+
+        false)
+            rm -f "$flag"
+        ;;
+
+        *)
+            echo "Unkown parameter $1, disabling"
+            rm -f "$flag"
+        ;;
+    esac
+}
+
+set_password() {
+    if [ "$DATA_FORMAT" -eq 0 ]; then
+        return 1
+    fi
+    user="phablet"
+    password="$1"
+    if [ -z "$password" ]; then
+        return 1
+    fi
+    path=/bin:/usr/bin:/sbin:/usr/sbin
+    PATH=$path chroot "$SYSTEM_MOUNTPOINT" /bin/sh -c "echo -n "$user:$password" | chpasswd"
+    return 0
+}
+
+unset_password() {
+    if [ "$DATA_FORMAT" -eq 0 ]; then
+        return 1
+    fi
+    # Needs implementation
+}
+
+usb_enable() {
+    prop_dir="/data/android-data/property"
+    prop="persist.sys.usb.config"
+    prop_val="$1"
+    # Property value ordering is important here
+    grep -q -s mtp "$prop_dir/$prop" && [ "$prop_val" == "adb" ] && prop_val="mtp,adb"
+    grep -q -s adb "$prop_dir/$prop" && [ "$prop_val" == "mtp" ] && prop_val="mtp,adb"
+    property_write "$prop" "$prop_val"
+}
+
+usb_disable() {
+    prop_dir="/data/android-data/property"
+    prop="persist.sys.usb.config"
+    prop_val="$1"
+    remain_prop=""
+    # Property value ordering is important here
+    grep -q -s mtp "$prop_dir/$prop" && [ "$prop_val" == "adb" ] && remain_prop="mtp"
+    grep -q -s adb "$prop_dir/$prop" && [ "$prop_val" == "mtp" ] && remain_prop="adb"
+    # we should not allow empty properties for the usb config
+    [ "$remain_prop" == "" ] && remain_prop="adb"
+    property_write "$prop" "$remain_prop"
+}
+
+factory_wipe() {
+    # only set this flag if coming from a data wipe
+    if [ "$DATA_FORMAT" -eq 0 ]; then
+        return 1
+    fi
+
+    flag="/data/.factory_wipe"
+    # if the param != "true" we just delete the flag
+    case $1 in
+        true)
+            touch "$flag"
+        ;;
+
+        false)
+            rm -f "$flag"
+        ;;
+
+        *)
+            echo "Unkown parameter $1, disabling"
+            rm -f "$flag"
+        ;;
+    esac
+}
+
+# Initialize GPG
+rm -Rf /tmp/system-image
+mkdir -p /tmp/system-image
+if [ -e /etc/system-image/archive-master.tar.xz ]; then
+    echo "Loading keyring: archive-master.tar.xz"
+    install_keyring /etc/system-image/archive-master.tar.xz /etc/system-image/archive-master.tar.xz.asc
+fi
+
+# Initialize recovery SWAP
+## Without a swap some systems will fail to install the ubuntu rootfs (due its size)
+if [ ! -e /cache/recovery/SWAP.img ]; then
+    # Determine size based on device maintainer preference, set in the kernel
+    # cmdline. This falls back to using 32MB for the total swap file size.
+    if grep -q siu.swapsize= /proc/cmdline; then
+        swap_size=$(cat /proc/cmdline | sed "s/ /\n/g" | grep siu.swapsize= | awk -F "=" '{ print $2 }')
+    else
+        swap_size=32
+    fi
+    echo "Swap size: $swap_size MB"
+    dd if=/dev/zero of=/cache/recovery/SWAP.img bs=1M count=$swap_size
+    mkswap /cache/recovery/SWAP.img
+fi
+swapon /cache/recovery/SWAP.img
+
+# Check the kernel command line to see whether Ubuntu should be installed to a partition
+# or in a file that is loop mounted.
+if grep -q systempart= /proc/cmdline; then
+    USE_SYSTEM_PARTITION=1
+else
+    USE_SYSTEM_PARTITION=0
+fi
+
+# However, do not use the block device name in the kernel command line, as that is not consistently
+# named in booting normal and recovery modes. Expect fstab to have a system mountpoint or use a fallback.
+if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
+    SYSTEM_PARTITION=$(grep "^[^#]" /etc/fstab | grep "/system_root" | cut -f 1 -d\ )
+    #Fall back to emmc@android if there's no system in fstab
+    if [ "$SYSTEM_PARTITION" == "" ]; then
+        SYSTEM_PARTITION = "emmc@android"
+    fi
+fi
+
+# Process the command file
+FULL_IMAGE=0
+echo "Processing the command file" >> /cache/system-image-upgrader.log
+while read line
+do
+    set -- $line
+    case "$1" in
+        format)
+            echo "Formating: $2"
+            case "$2" in
+                system)
+                    FULL_IMAGE=1
+                    if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
+                        echo "system partition: $SYSTEM_PARTITION"
+                        umount /system_root || true
+                        make_ext4fs $SYSTEM_PARTITION
+                    else
+                        rm -f /data/rootfs.img
+                        dd if=/dev/zero of=/data/rootfs.img seek=500K bs=4096 count=0
+                        mkfs.ext2 -F /data/rootfs.img
+                    fi
+                ;;
+
+                data)
+                    for entry in /data/* /data/.writable_image /data/.factory_wipe; do
+                        if [ "$USE_SYSTEM_PARTITION" -eq 0 ];then
+                            if [ "$entry" == "/data/rootfs.img" ]; then
+                                    continue
+                            fi
+                        fi
+
+                        # Some devices use /data as /cache, so avoid removing
+                        # files that are essential to flashing and upgrading
+                        if [ "$entry" == "/data/cache" ]; then
+                            continue
+                        fi
+
+                        rm -Rf $entry
+                    done
+                    # mtp is always enabled by default
+                    usb_enable mtp
+                    DATA_FORMAT=1
+                ;;
+
+                *)
+                    echo "Unknown format target: $2"
+                ;;
+            esac
+        ;;
+
+        enable)
+            echo "Enabling: $2"
+            case "$2" in
+                developer_mode)
+                    usb_enable adb
+                ;;
+
+                mtp)
+                    usb_enable mtp
+                ;;
+
+                default_password)
+                    set_password $3
+                ;;
+
+                adb_onlock)
+                    adb_onlock true
+                ;;
+
+                factory_wipe)
+                    factory_wipe true
+                ;;
+
+                *)
+                    echo "Unknown enable target: $2"
+                ;;
+            esac
+        ;;
+
+        disable)
+            echo "Disabling: $2"
+            case "$2" in
+                developer_mode)
+                    usb_disable adb
+                ;;
+
+                mtp)
+                    usb_disable mtp
+                ;;
+
+                default_password)
+                    unset_password
+                ;;
+
+                adb_onlock)
+                    adb_onlock false
+                ;;
+
+                factory_wipe)
+                    factory_wipe false
+                ;;
+
+                *)
+                    echo "Unknown disable target: $2"
+                ;;
+            esac
+        ;;
+
+        load_keyring)
+            if [ ! -e "/cache/recovery/$2" ] || [ ! -e "/cache/recovery/$3" ]; then
+                echo "Skipping missing file: $2"
+                continue
+            fi
+            REMOVE_LIST="$REMOVE_LIST /cache/recovery/$2 /cache/recovery/$3"
+
+            echo "Loading keyring: $2"
+            install_keyring /cache/recovery/$2 /cache/recovery/$3
+
+            if [ -e /tmp/system-image/image-master/pubring.gpg ] && \
+               [ ! -e /tmp/system-image/blacklist/pubring.gpg ] && \
+               [ -e /data/system-data/var/lib/system-image/blacklist.tar.xz ] && \
+               [ -e /data/system-data/var/lib/system-image/blacklist.tar.xz.asc ]; then
+                echo "Loading blacklist keyring"
+                install_keyring /data/system-data/var/lib/system-image/blacklist.tar.xz /data/system-data/var/lib/system-image/blacklist.tar.xz.asc
+            fi
+        ;;
+
+        mount)
+            case "$2" in
+                system)
+                    mkdir -p "$SYSTEM_MOUNTPOINT"
+                    if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
+                        umount $SYSTEM_PARTITION || true
+                        umount $SYSTEM_MOUNTPOINT || true
+                        umount /system_root || true
+                        check_filesystem $SYSTEM_PARTITION
+                        mount $SYSTEM_PARTITION "$SYSTEM_MOUNTPOINT"
+                    else
+                        check_filesystem /data/rootfs.img
+                        mount -o loop /data/rootfs.img "$SYSTEM_MOUNTPOINT/"
+                    fi
+                ;;
+
+                *)
+                    echo "Unknown mount target: $2"
+                ;;
+            esac
+        ;;
+
+        unmount)
+            case "$2" in
+                system)
+                    umount "$SYSTEM_MOUNTPOINT"
+                    rmdir "$SYSTEM_MOUNTPOINT"
+                ;;
+
+                *)
+                    echo "Unknown mount target: $2"
+                ;;
+            esac
+        ;;
+
+        update)
+            if [ ! -e "/cache/recovery/$2" ] || [ ! -e "/cache/recovery/$3" ]; then
+                echo "Skipping missing file: $2"
+                continue
+            fi
+
+            REMOVE_LIST="$REMOVE_LIST /cache/recovery/$3"
+
+            if ! verify_signature device-signing /cache/recovery/$3 && \
+               ! verify_signature image-signing /cache/recovery/$3; then
+                echo "Invalid signature"
+                exit 1
+            fi
+
+            echo "Applying update: $2"
+            cd /cache
+            rm -Rf partitions
+            rm -Rf data  || true
+
+            # Start by removing any file listed in "removed"
+            if [ "$FULL_IMAGE" != "1" ]; then
+                xzcat recovery/$2 | tar --numeric-owner -xf - removed >/dev/null 2>&1 || true
+                if [ -e removed ]; then
+                    while read file; do
+                        rm -Rf $file
+                    done < removed
+                fi
+                rm -f removed
+            fi
+
+            # Unpack everything else on top of the system partition
+            xzcat recovery/$2 | tar --numeric-owner -xf -
+            rm -f removed
+
+            # Move things to data
+            mv data/* /data/ || true
+            rm -Rf data || true
+
+            # Process partition images
+            grep "^/dev" /etc/fstab | while read line; do
+                set -- $line
+
+                part=${2##/}
+                path=$1
+
+                if [ -e partitions/${part}.img ] && [ -e $path ]; then
+                    echo "Flashing ${part} at ${path}"
+                    cat partitions/${part}.img > ${path}
+                    rm partitions/${part}.img
+                fi
+            done
+
+            # Remove tarball to free up space, since device tarballs
+            # extract partitions/blobs that might fill up cache,
+            # this way we ensure we got space for the partitions/blobs
+            rm -f recovery/$2
+        ;;
+
+        *)
+            echo "Unknown command: $1"
+        ;;
+    esac
+done < $COMMAND_FILE
+
+# Remove temporary SWAP
+swapoff /cache/recovery/SWAP.img
+rm -f /cache/recovery/SWAP.img
+
+# Remove the update files
+for file in $REMOVE_LIST; do
+    rm -f $file
+done
+
+# If a previous SWAP of 512MB is available, remove
+if [ -e /data/SWAP.img ]; then
+    swap_size=`stat /data/SWAP.img | grep Size | awk -F' ' '{print $2}'`
+    if [ "$swap_size" = "536870912" ]; then
+        echo "Removing old 512MB swap file."
+        rm -f /data/SWAP.img
+    fi
+fi
+
+# Create the SWAP image if missing
+# Here we only want a small SWAP to be created, as we found out
+# that the kernel memory manager algorithm behaves better if swap
+# is available, even if a minimal one (not to be used by the system)
+if [ ! -e /data/SWAP.img ]; then
+    echo "Creating SWAP device (32MB)."
+    dd if=/dev/zero of=/data/SWAP.img bs=4096 count=8192
+    mkswap /data/SWAP.img
+fi
+
+
+
+# Ensure we have sane permissions
+if [ "$USE_SYSTEM_PARTITION" -eq 0 ];then
+    chmod 600 /data/rootfs.img
+    chown 0:0 /data/rootfs.img
+fi
+chmod 600 /data/SWAP.img
+chown 0:0 /data/SWAP.img
+
+touch /data/.last_update || true
+sync
+
+echo "Done upgrading: $(date)" >> /cache/system-image-upgrader.log
+
+# Make sure there are always 5% reserved in /data for root usage
+# else filling $HOME can make the system unusable since writable
+# files and dirs share the space with $HOME and android does not
+# reserve root space in /data
+tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//') >> /cache/system-image-upgrader.log

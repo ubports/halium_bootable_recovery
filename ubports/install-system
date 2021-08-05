@@ -1,0 +1,83 @@
+#!/sbin/sh
+
+TARPATH=$(realpath $2)
+SYSIMG=$(realpath $3)
+
+
+prepare_ubuntu_system()
+{
+	mount /data
+	rm -f /data/system.img
+	rm -rf /data/ubuntu
+	for data in system android; do
+		rm -rf /data/$data-data
+	done
+	dd if=/dev/zero of=/data/system.img seek=500K bs=4096 count=0 >/dev/null 2>&1
+	mkfs.ext2 -F /data/system.img >/dev/null 2>&1
+	mkdir -p /data/ubuntu
+	mount -o loop /data/system.img /data/ubuntu/
+}
+
+cleanup()
+{
+	umount /data/ubuntu/ 2>/dev/null && rm -rf /data/ubuntu 2>/dev/null
+	rm -r /data/zip
+}
+
+usage()
+{
+	echo "usage: $(basename $0) <method>\n
+	methods: zip, pre"
+	exit 1
+}
+
+TARBALL=$(basename $TARPATH)
+THIS_DIR=$(dirname $0)
+
+if [ $1 == "zip" ]; then
+   mkdir /data/zip
+   unzip $TARPATH -d /data/zip
+   TARBALL = /data/zip/ubuntu.tar.gz
+   SYSIMG = /data/zip/system.img
+fi
+
+if [ -z "$TARBALL" ]; then
+    echo "need valid rootfs tarball path"
+    usage
+fi
+
+echo -n "preparing system-image on device ... "
+prepare_ubuntu_system
+echo "[done]"
+
+echo -n "unpacking rootfs tarball to system-image ... "
+echo "$TARPATH"
+zcat $TARPATH | tar xf - -C /data/ubuntu
+cd /data/ubuntu
+mkdir -p /data/ubuntu/android/firmware
+mkdir -p /data/ubuntu/android/persist
+mkdir -p /data/ubuntu/userdata
+[ -e /data/ubuntu/SWAP.swap ] && mv /data/ubuntu/SWAP.swap /data/SWAP.img
+for link in cache data factory firmware persist system; do
+	cd /data/ubuntu && ln -s /android/$link $link
+done
+cd /data/ubuntu/lib && ln -s /system/lib/modules modules
+cd /data/ubuntu && ln -s /android/system/vendor vendor
+[ -e /data/ubuntu/etc/mtab ] && rm /data/ubuntu/etc/mtab
+cd /data/ubuntu/etc && ln -s /proc/mounts mtab
+
+echo "[done]"
+
+echo -n "adding android system image to installation ... "
+cd "$(dirname "$0")"
+ANDROID_DIR="/data/ubuntu/var/lib/lxc/android/"
+cp $SYSIMG $ANDROID_DIR
+echo "[done]"
+
+echo -n "enabling Mir ... "
+touch /data/ubuntu/home/phablet/.display-mir
+echo "[done]"
+
+echo -n "cleaning up on device ... "
+cleanup
+echo "[done]"
