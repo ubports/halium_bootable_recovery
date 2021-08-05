@@ -25,6 +25,8 @@ constexpr const char kDefaultTemporaryInstallFile[] = "/tmp/last_install";
 constexpr const char kDefaultTemporaryLogFile[] = "/tmp/recovery.log";
 constexpr const char kDefaultTemporaryUpdateBinary[] = "/tmp/update-binary";
 
+constexpr const char kDefaultUbuntuUpdaterLogFile[] = "/cache/ubuntu_updater.log";
+
 Paths& Paths::Get() {
   static Paths paths;
   return paths;
@@ -38,4 +40,5 @@ Paths::Paths()
       stash_directory_base_(kDefaultStashDirectoryBase),
       temporary_install_file_(kDefaultTemporaryInstallFile),
       temporary_log_file_(kDefaultTemporaryLogFile),
-      temporary_update_binary_(kDefaultTemporaryUpdateBinary) {}
+      temporary_update_binary_(kDefaultTemporaryUpdateBinary),
+      ubuntu_updater_log_file_(kDefaultUbuntuUpdaterLogFile) {}
