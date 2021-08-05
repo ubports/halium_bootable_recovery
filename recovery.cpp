@@ -63,10 +63,13 @@
 #include "recovery_utils/roots.h"
 #include "volclient.h"
 
+#include <ubupdater/ubupdater.h>
+
 using android::volmgr::VolumeManager;
 using android::volmgr::VolumeInfo;
 
 static constexpr const char* COMMAND_FILE = "/cache/recovery/command";
+static constexpr const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
 static constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 static constexpr const char* LAST_LOG_FILE = "/cache/recovery/last_log";
 static constexpr const char* LOCALE_FILE = "/cache/recovery/last_locale";
@@ -727,6 +730,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
     { "shutdown_after", no_argument, nullptr, 0 },
     { "sideload", no_argument, nullptr, 0 },
     { "sideload_auto_reboot", no_argument, nullptr, 0 },
+    { "update_ubuntu", no_argument, NULL, 0 },
     { "update_package", required_argument, nullptr, 0 },
     { "wipe_ab", no_argument, nullptr, 0 },
     { "wipe_cache", no_argument, nullptr, 0 },
@@ -739,6 +743,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
 
   const char* update_package = nullptr;
   bool install_with_fuse = false;  // memory map the update package by default.
+  bool should_update_ubuntu_package = false;
   bool should_wipe_data = false;
   bool should_prompt_and_wipe_data = false;
   bool should_keep_memtag_mode = false;
@@ -806,6 +811,8 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
           data_fstype = optarg;
         } else if (option == "keep_memtag_mode") {
           should_keep_memtag_mode = true;
+        } else if (option == "update_ubuntu") {
+          should_update_ubuntu_package = true;
         }
         break;
       }
@@ -941,6 +948,10 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
           ui->ShowText(true);
         }
       }
+    }
+  } else if (should_update_ubuntu_package) {
+    if (access(UBUNTU_COMMAND_FILE, F_OK) != -1) {
+      status = do_ubuntu_update(ui);
     }
   } else if (should_wipe_data) {
     save_current_log = true;

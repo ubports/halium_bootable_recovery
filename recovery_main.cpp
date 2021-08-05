@@ -73,6 +73,9 @@ static bool IsRoDebuggable() {
   return android::base::GetBoolProperty("ro.debuggable", false);
 }
 
+static constexpr const char *UBUNTU_ARGUMENT = "--update_ubuntu";
+static constexpr const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
+
 static bool IsDeviceUnlocked() {
   return "orange" == android::base::GetProperty("ro.boot.verifiedbootstate", "");
 }
@@ -147,8 +150,18 @@ static std::vector<std::string> get_args(const int argc, char** const argv, std:
     }
   }
 
-  // --- if that doesn't work, try the command file (if we have /cache).
-  if (args.size() == 1 && HasCache()) {
+  // ----if that doesn't work, try Ubuntu command file
+  if (args.size() <= 1) {
+      FILE *fp = fopen(UBUNTU_COMMAND_FILE, "r");
+      if (fp != nullptr) {
+          // there is Ubuntu command file, use it
+          // there is no need to read file content for now
+          check_and_fclose(fp, UBUNTU_COMMAND_FILE);
+          args.emplace_back(std::string(UBUNTU_ARGUMENT));
+          LOG(INFO) << "Got arguments from " << UBUNTU_COMMAND_FILE;
+      }
+  } else if (args.size() == 1 && HasCache()) {
+    // --- if that doesn't work, try the command file (if we have /cache).
     std::string content;
     if (ensure_path_mounted(COMMAND_FILE) == 0 &&
         android::base::ReadFileToString(COMMAND_FILE, &content)) {
