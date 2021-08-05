@@ -69,6 +69,9 @@ static constexpr const char* LOCALE_FILE = "/cache/recovery/last_locale";
 
 static constexpr const char* CACHE_ROOT = "/cache";
 
+static constexpr const char *UBUNTU_ARGUMENT = "--update_ubuntu";
+static constexpr const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
+
 bool has_cache = false;
 
 RecoveryUI* ui = nullptr;
@@ -137,8 +140,18 @@ static std::vector<std::string> get_args(const int argc, char** const argv) {
     }
   }
 
-  // --- if that doesn't work, try the command file (if we have /cache).
-  if (args.size() == 1 && has_cache) {
+  // ----if that doesn't work, try Ubuntu command file
+  if (args.size() <= 1) {
+      FILE *fp = fopen(UBUNTU_COMMAND_FILE, "r");
+      if (fp != nullptr) {
+          // there is Ubuntu command file, use it
+          // there is no need to read file content for now
+          check_and_fclose(fp, UBUNTU_COMMAND_FILE);
+          args.emplace_back(std::string(UBUNTU_ARGUMENT));
+          LOG(INFO) << "Got arguments from " << UBUNTU_COMMAND_FILE;
+      }
+  } else if (args.size() == 1 && has_cache) {
+    // --- if that doesn't work, try the command file (if we have /cache).
     std::string content;
     if (ensure_path_mounted(COMMAND_FILE) == 0 &&
         android::base::ReadFileToString(COMMAND_FILE, &content)) {

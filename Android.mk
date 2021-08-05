@@ -77,4 +77,5 @@ endif
 include $(BUILD_PHONY_PACKAGE)
 
 include \
+    $(LOCAL_PATH)/ubports/Android.mk \
     $(LOCAL_PATH)/updater/Android.mk \
