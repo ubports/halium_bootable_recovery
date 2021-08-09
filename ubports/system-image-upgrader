@@ -1,5 +1,7 @@
-#!/sbin/sh
+#!/system/bin/sh
+
 set -e
+
 echo "System Image Upgrader for Ubuntu Touch"
 echo "Preparing command file"
 if [ ! -e "$1" ]; then
