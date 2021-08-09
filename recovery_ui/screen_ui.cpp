@@ -485,6 +485,10 @@ void ScreenRecoveryUI::draw_background_locked() {
   gr_color(0, 0, 0, 255);
   gr_clear();
   if (current_icon_ != NONE) {
+    if (current_icon_ == INSTALLING_UPDATE) {
+      gr_color(66, 66, 66, 255);
+      gr_fill(0, 0, gr_fb_width(), gr_fb_height());
+    }
     if (max_stage != -1) {
       int stage_height = gr_get_height(stage_marker_empty_.get());
       int stage_width = gr_get_width(stage_marker_empty_.get());
@@ -558,20 +562,21 @@ void ScreenRecoveryUI::draw_foreground_locked() {
 /* recovery dark:  #7C4DFF
    recovery light: #F890FF
    fastbootd dark: #E65100
-   fastboot light: #FDD835 */
+   fastboot light: #FDD835
+   Ubuntu orange:  #E95420 */
 void ScreenRecoveryUI::SetColor(UIElement e) const {
   switch (e) {
     case UIElement::INFO:
       if (fastbootd_logo_enabled_)
         gr_color(0xfd, 0xd8, 0x35, 255);
       else
-        gr_color(0xf8, 0x90, 0xff, 255);
+        gr_color(0xe9, 0x54, 0x20, 255);
       break;
     case UIElement::HEADER:
       if (fastbootd_logo_enabled_)
         gr_color(0xfd, 0xd8,0x35, 255);
       else
-        gr_color(0xf8, 0x90, 0xff, 255);
+        gr_color(0xe9, 0x54, 0x20, 255);
       break;
     case UIElement::MENU:
       gr_color(0xd8, 0xd8, 0xd8, 255);
@@ -581,7 +586,7 @@ void ScreenRecoveryUI::SetColor(UIElement e) const {
       if (fastbootd_logo_enabled_)
         gr_color(0xe6, 0x51, 0x00, 255);
       else
-        gr_color(0x7c, 0x4d, 0xff, 255);
+        gr_color(0xe9, 0x54, 0x20, 255);
       break;
     case UIElement::MENU_SEL_BG_ACTIVE:
       gr_color(0, 156, 100, 255);
@@ -596,7 +601,7 @@ void ScreenRecoveryUI::SetColor(UIElement e) const {
       gr_color(196, 196, 196, 255);
       break;
     case UIElement::TEXT_FILL:
-      gr_color(0, 0, 0, 160);
+      gr_color(66, 66, 66, 160);
       break;
     default:
       gr_color(255, 255, 255, 255);
@@ -871,6 +876,9 @@ void ScreenRecoveryUI::update_progress_locked() {
 }
 
 void ScreenRecoveryUI::ProgressThreadLoop() {
+  int loop_frame_next_blink = rand()%(120 + 1) + 30;
+  int counter = 0;
+  int blink_counter = 0;
   double interval = 1.0 / animation_fps_;
   while (!progress_thread_stopped_) {
     double start = now();
@@ -889,7 +897,35 @@ void ScreenRecoveryUI::ProgressThreadLoop() {
             ++current_frame_;
           }
         } else {
-          current_frame_ = (current_frame_ + 1) % loop_frames_.size();
+          if (counter > loop_frame_next_blink) {
+            // make Yumi close its eyes
+            if (blink_counter < 3) {
+              current_frame_ = 2; // half closed
+            }
+            if (blink_counter < 5) {
+              current_frame_ = 3; // full closed
+            }
+            if (blink_counter < 7) {
+              current_frame_ = 4; // full closed
+            }
+            if (blink_counter < 9) {
+              current_frame_ = 3; // half opened
+            }
+            if (blink_counter >= 10) {
+              counter = 0;
+              blink_counter = 0;
+              loop_frame_next_blink = rand()%(120 + 1) + 30;
+            } else {
+              blink_counter++;
+            }
+          } else {
+            current_frame_ = (current_frame_ + 1) % loop_frames_.size();
+            // just switch between the first two frames
+            if (current_frame_ > 1) {
+              current_frame_ = 0;
+            }
+            counter++;
+          }
         }
 
         redraw = true;
@@ -1031,12 +1067,11 @@ bool ScreenRecoveryUI::Init(const std::string& locale) {
 
   back_icon_ = LoadBitmap("ic_back");
   back_icon_sel_ = LoadBitmap("ic_back_sel");
+  // ubports: use logo_image for all devices
+  lineage_logo_ = LoadBitmap("logo_image");
   if (android::base::GetBoolProperty("ro.boot.dynamic_partitions", false) ||
       android::base::GetBoolProperty("ro.fastbootd.available", false)) {
-    lineage_logo_ = LoadBitmap("logo_image_switch");
     fastbootd_logo_ = LoadBitmap("fastbootd");
-  } else {
-    lineage_logo_ = LoadBitmap("logo_image");
   }
 
   // Background text for "installing_update" could be "installing update" or
