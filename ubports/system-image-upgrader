@@ -310,7 +310,7 @@ do
                         mkfs.ext4 $SYSTEM_PARTITION
                     else
                         # We need to use legacy image name here, halium-boot needs this to decide file layout
-                        dd if=/dev/zero of=/data/ubuntu.img seek=500K bs=4096 count=0
+                        dd if=/dev/zero of=/data/ubuntu.img seek=3M bs=1024 count=0
                         mkfs.ext2 -F /data/ubuntu.img
                     fi
                 ;;
