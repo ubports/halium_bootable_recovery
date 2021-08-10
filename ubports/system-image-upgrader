@@ -538,6 +538,10 @@ do
             rm -f recovery/$2
         ;;
 
+        "#")
+            # We are processing a command in the script, ignore it
+        ;;
+
         *)
             echo "Unknown command: $1"
         ;;
