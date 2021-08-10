@@ -156,6 +156,7 @@ cc_binary {
         // ubports
         "archive-master.tar.xz",
         "archive-master.tar.xz.asc",
+        "busybox_recovery",
         "e2fsck_recovery",
         "gpg",
         "install-system",
