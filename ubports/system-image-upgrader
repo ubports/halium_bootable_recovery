@@ -286,6 +286,11 @@ if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
     fi
 fi
 
+# If we are not using the system partition, ensure that /data is mounted
+if [ "$USE_SYSTEM_PARTITION" -eq 0 ]; then
+    mount /data
+fi
+
 # Process the command file
 FULL_IMAGE=0
 echo "Processing command file"
@@ -316,7 +321,10 @@ do
                 ;;
 
                 data)
-                    mount /data || true
+                    if [ "$USE_SYSTEM_PARTITION" -eq 1 ]; then
+                        mount /data || true
+                    fi
+
                     for entry in /data/* /data/.writable_image /data/.factory_wipe; do
                         if [ "$USE_SYSTEM_PARTITION" -eq 0 ]; then
                             if [[ ( "$entry" == "/data/ubuntu.img" ) || ( "$entry" == "/data/rootfs.img" ) || ( "$entry" == "/data/system.img" ) || ( "$entry" == "/data/android-rootfs.img" ) ]]; then
@@ -347,7 +355,10 @@ do
                     # mtp is always enabled by default
                     usb_enable mtp
                     DATA_FORMAT=1
-                    umount /data
+
+                    if [ "$USE_SYSTEM_PARTITION" -eq 1 ]; then
+                        umount /data
+                    fi
                 ;;
 
                 *)
@@ -576,8 +587,12 @@ echo "Done upgrading..."
 # else filling $HOME can make the system unusable since writable
 # files and dirs share the space with $HOME and android does not
 # reserve root space in /data
-mount /data
+if [ "$USE_SYSTEM_PARTITION" -eq 1 ]; then
+    mount /data
+fi
 tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//')
+
+# Always unmount unconditionally
 umount /data
 
 sync
