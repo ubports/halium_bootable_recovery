@@ -88,7 +88,7 @@ install_keyring() {
     # Unpacking
     TMPDIR=$(mktemp -d -p /tmp/system-image/ tmp.XXXXXXXXXX)
     cd $TMPDIR
-    xzcat $1 | tar --numeric-owner -xf -
+    busybox xzcat $1 | busybox tar --numeric-owner -xf -
     if [ ! -e keyring.json ] || [ ! -e keyring.gpg ]; then
         rm -Rf $TMPDIR
         echo "Invalid keyring: $1"
@@ -489,7 +489,7 @@ do
 
             # Start by removing any file listed in "removed"
             if [ "$FULL_IMAGE" != "1" ]; then
-                xzcat recovery/$2 | tar --numeric-owner -xf - removed >/dev/null 2>&1 || true
+                busybox xzcat recovery/$2 | busybox tar --numeric-owner -xf - removed >/dev/null 2>&1 || true
                 if [ -e removed ]; then
                     while read file; do
                         rm -Rf $file
@@ -499,7 +499,7 @@ do
             fi
 
             # Unpack everything else on top of the system partition
-            xzcat recovery/$2 | tar --numeric-owner -xf -
+            busybox xzcat recovery/$2 | busybox tar --numeric-owner -xf -
             rm -f removed
 
             # WORKAROUND: fix erroneous vendor symlink
