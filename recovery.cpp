@@ -79,8 +79,6 @@ static constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 static constexpr const char* LAST_LOG_FILE = "/cache/recovery/last_log";
 static constexpr const char* LOCALE_FILE = "/cache/recovery/last_locale";
 
-static constexpr const char* CACHE_ROOT = "/cache";
-
 // We define RECOVERY_API_VERSION in Android.mk, which will be picked up by build system and packed
 // into target_files.zip. Assert the version defined in code and in Android.mk are consistent.
 static_assert(kRecoveryApiVersion == RECOVERY_API_VERSION, "Mismatching recovery API versions.");
@@ -172,7 +170,6 @@ static void finish_recovery() {
     if (ensure_path_mounted(COMMAND_FILE) != 0 || (unlink(COMMAND_FILE) && errno != ENOENT)) {
       LOG(WARNING) << "Can't unlink " << COMMAND_FILE;
     }
-    ensure_path_unmounted(CACHE_ROOT);
   }
 
   sync();  // For good measure.
