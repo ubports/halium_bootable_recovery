@@ -90,10 +90,16 @@ void load_volume_table() {
   }
   std::cout << std::endl;
 
+  // Map logical partitions so there is a device node to put into fstab
+  setup_install_mounts();
+
   // Create a boring /etc/fstab so tools like Busybox work
   FILE* file = fopen("/etc/fstab", "w");
   if (file) {
     for (auto& entry : fake_fstab) {
+      if (entry.fs_mgr_flags.logical && !fs_mgr_update_logical_partition(&entry)) {
+        LOG(ERROR) << "Failed to find block device for partition" << entry.blk_device;
+      }
       write_fstab_entry(entry, file);
     }
     fclose(file);
