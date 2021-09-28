@@ -279,7 +279,7 @@ USE_SYSTEM_PARTITION=1
 # However, do not use the block device name in the kernel command line, as that is not consistently
 # named in booting normal and recovery modes. Expect fstab to have a system mountpoint or use a fallback.
 if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
-    SYSTEM_PARTITION=$(grep "^[^#]" /etc/fstab | grep "/system_root" | cut -f 1 -d\ )
+    SYSTEM_PARTITION=$(grep "^[^#]" /etc/fstab | grep -e "/system\(_root\)*" | cut -f 1 -d\ )
     #Fall back to emmc@android if there's no system in fstab
     if [ "$SYSTEM_PARTITION" == "" ]; then
         SYSTEM_PARTITION="emmc@android"
@@ -312,6 +312,7 @@ do
                     if [ "$USE_SYSTEM_PARTITION" -eq 1 ];then
                         echo "system partition: $SYSTEM_PARTITION"
                         umount /system_root || true
+                        umount /mnt/system || true
                         mkfs.ext4 $SYSTEM_PARTITION
                     else
                         # We need to use legacy image name here, halium-boot needs this to decide file layout
@@ -452,6 +453,7 @@ do
                         umount $SYSTEM_PARTITION || true
                         umount $SYSTEM_MOUNTPOINT || true
                         umount /system_root || true
+                        umount /mnt/system || true
                         check_filesystem $SYSTEM_PARTITION
                         mount $SYSTEM_PARTITION "$SYSTEM_MOUNTPOINT"
                     else
