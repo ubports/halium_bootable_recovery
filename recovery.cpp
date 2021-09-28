@@ -78,8 +78,6 @@ static constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
 static constexpr const char* LAST_LOG_FILE = "/cache/recovery/last_log";
 static constexpr const char* LOCALE_FILE = "/cache/recovery/last_locale";
 
-static constexpr const char* CACHE_ROOT = "/cache";
-
 static bool save_current_log = false;
 
 /*
@@ -163,7 +161,6 @@ static void FinishRecovery(RecoveryUI* ui) {
     if (ensure_path_mounted(COMMAND_FILE) != 0 || (unlink(COMMAND_FILE) && errno != ENOENT)) {
       LOG(WARNING) << "Can't unlink " << COMMAND_FILE;
     }
-    ensure_path_unmounted(CACHE_ROOT);
   }
 
   sync();  // For good measure.
