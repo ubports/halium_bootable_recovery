@@ -586,11 +586,17 @@ echo "Done upgrading..."
 # Make sure there are always 5% reserved in /data for root usage
 # else filling $HOME can make the system unusable since writable
 # files and dirs share the space with $HOME and android does not
-# reserve root space in /data
+# reserve root space in /data for ext4.
+# Devices with f2fs can reserve space with setting the
+# "reserve_root" mount option.
 if [ "$USE_SYSTEM_PARTITION" -eq 1 ]; then
     mount /data
 fi
-tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//')
+
+DATA_FS_TYPE=$(grep "/data " /proc/mounts| cut -d ' ' -f3)
+if [ "$DATA_FS_TYPE" == "ext4" ]; then
+    tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//')
+fi
 
 # Always unmount unconditionally
 umount /data
