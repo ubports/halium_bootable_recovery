@@ -18,14 +18,46 @@
 #include <unistd.h>
 
 #include <install/install.h>
+#include <otautil/roots.h>
 #include <recovery_ui/ui.h>
 
 static const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
 static const char *UBUNTU_UPDATE_SCRIPT = "/sbin/system-image-upgrader";
 
+int setup_partitions(RecoveryUI *ui) {
+    // Map logical partitions so there is a device node to put into fstab
+    if (setup_install_mounts() != 0) {
+        ui->Print("Failed to set up expected mounts for install; aborting\n");
+        return INSTALL_ERROR;
+    }
+
+    // updating volume table including /etc/fstab, which is used by our script as
+    // we are doing manual mounts where we only specify the path.
+    load_volume_table();
+
+    return INSTALL_SUCCESS;
+}
+
+void show_installation_error(RecoveryUI *ui, int result) {
+    // Enable text to show errors to the user
+    ui->ShowText(true);
+    ui->Print("Error installing Ubuntu update, exit code: %d\n", result);
+    ui->Print("Please go to Advanced -> View recovery logs -> /cache/ubuntu_updater.log\n");
+
+    // TODO: Show error ui instead of text only?
+    ui->SetProgressType(RecoveryUI::EMPTY);
+}
+
 int do_ubuntu_update(RecoveryUI *ui){
     // Disable text because otherwise the animation is not showing
     ui->ShowText(false);
+
+    ui->Print("Setting up partitions...\n");
+    int result = setup_partitions(ui);
+    if (result != INSTALL_SUCCESS) {
+        show_installation_error(ui, result);
+        return INSTALL_ERROR;
+    }
 
     ui->Print("Executing Ubuntu update script...\n");
     ui->SetBackground(RecoveryUI::INSTALLING_UPDATE);
@@ -33,21 +65,15 @@ int do_ubuntu_update(RecoveryUI *ui){
 
     char tmp[PATH_MAX];
     sprintf(tmp, "%s %s &> /cache/ubuntu_updater.log", UBUNTU_UPDATE_SCRIPT, UBUNTU_COMMAND_FILE);
-    int result = system(tmp);
-    if (result == 0) {
-        ui->SetEnableReboot(true);
-        ui->Print("\n");
-        return INSTALL_SUCCESS;
+    result = system(tmp);
+    if (result != 0) {
+        show_installation_error(ui, result);
+        return INSTALL_ERROR;
     }
 
-    // Enable text to show errors to the user
-    ui->ShowText(true);
-    ui->Print("Error installing Ubuntu update, exit code: %d\n", result);
-    ui->Print("Please go to Advanced -> View recovery logs -> /cache/ubuntu_updater.log\n");
-    // TODO: Show error ui instead of text only?
-    ui->SetProgressType(RecoveryUI::EMPTY);
-
-    return INSTALL_ERROR;
+    ui->SetEnableReboot(true);
+    ui->Print("\n");
+    return INSTALL_SUCCESS;
 }
 
 int do_test_update(RecoveryUI *ui){

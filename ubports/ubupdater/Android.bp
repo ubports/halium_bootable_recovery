@@ -34,6 +34,8 @@ cc_library_static {
     ],
 
     static_libs: [
+        "libfs_mgr",
         "libinstall",
+        "libotautil",
     ],
 }
