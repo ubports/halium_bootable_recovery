@@ -77,5 +77,6 @@ cc_library_static {
         "//bootable/recovery/install",
         "//bootable/recovery/minadbd",
         "//bootable/recovery/tests",
+        "//bootable/recovery/ubports/ubupdater",
     ],
 }
