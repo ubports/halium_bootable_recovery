@@ -118,6 +118,13 @@ void load_volume_table() {
   FILE* file = fopen("/etc/fstab", "w");
   if (file) {
     for (auto& entry : fake_fstab) {
+      if (entry.fs_mgr_flags.logical) {
+        if (fs_mgr_update_logical_partition(&entry)) {
+          LOG(INFO) << "Updated logical partition" << " " << entry.blk_device;
+        } else {
+          LOG(ERROR) << "Failed to find block device for partition" << entry.blk_device;
+        }
+      }
       write_fstab_entry(entry, file);
     }
     fclose(file);
@@ -417,7 +424,7 @@ void map_logical_partitions() {
 
 bool dm_find_system() {
   auto rec = GetEntryForPath(&fstab, android::fs_mgr::GetSystemRoot());
-  if (!rec->fs_mgr_flags.logical) {
+  if (!rec || !rec->fs_mgr_flags.logical) {
     return false;
   }
   // If the fstab entry for system it's a path instead of a name, then it was already mapped
