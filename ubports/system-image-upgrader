@@ -510,7 +510,9 @@ do
             fi
 
             # Unpack everything else on top of the system partition
-            busybox xzcat recovery/$2 | busybox tar --numeric-owner -xf -
+            # -h means "follow symlinks", which make device tarballs that
+            # "overlay" /lib/* work correctly with /usr-merged rootfs.
+            busybox xzcat recovery/$2 | busybox tar --numeric-owner -xhf -
             rm -f removed
 
             # WORKAROUND: fix erroneous vendor symlink
