@@ -525,8 +525,10 @@ do
             fi
 
             # Move things to data
-            mv data/* /data/ || true
-            rm -Rf data || true
+            if [ -d data ]; then
+                mv data/* /data/ || true
+                rm -Rf data || true
+            fi
 
             # Process partition images
             grep "^/dev" /etc/fstab | while read line; do
