@@ -193,14 +193,14 @@ cc_binary {
         "archive-master.tar.xz",
         "archive-master.tar.xz.asc",
         "busybox_recovery",
-        "e2fsck_recovery",
+        "e2fsck.recovery",
         "gpg",
         "install-system",
         "replace-system",
         "simg2img_ubports",
         "simgtest_ubports",
         "system-image-upgrader",
-        "tune2fs_recovery",
+        "tune2fs.recovery",
     ],
 }
 
