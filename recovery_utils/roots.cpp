@@ -125,6 +125,10 @@ void load_volume_table() {
           LOG(ERROR) << "Failed to find block device for partition" << entry.blk_device;
         }
       }
+      // UBPorts: prevent tools from breaking recovery by mounting over /system
+      if (entry.mount_point == "/system") {
+          entry.mount_point = "/mnt/system";
+      }
       write_fstab_entry(entry, file);
     }
     fclose(file);
