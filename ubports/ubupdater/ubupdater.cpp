@@ -22,7 +22,7 @@
 #include <recovery_ui/ui.h>
 
 static const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
-static const char *UBUNTU_UPDATE_SCRIPT = "/sbin/system-image-upgrader";
+static const char *UBUNTU_UPDATE_SCRIPT = "/system/bin/system-image-upgrader";
 
 int setup_partitions(RecoveryUI *ui) {
     // Map logical partitions so there is a device node to put into fstab
