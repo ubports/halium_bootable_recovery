@@ -345,7 +345,7 @@ do
                     # mtp is always enabled by default
                     usb_enable mtp
                     DATA_FORMAT=1
-                    umount /data
+                    umount /data || true
                 ;;
 
                 *)
@@ -574,8 +574,8 @@ echo "Done upgrading..."
 # else filling $HOME can make the system unusable since writable
 # files and dirs share the space with $HOME and android does not
 # reserve root space in /data
-mount /data
+mount /data || true
 tune2fs -m 5 $(grep "/data " /proc/mounts| sed -e 's/ .*$//')
-umount /data
+umount /data || true
 
 sync
