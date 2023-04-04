@@ -263,12 +263,10 @@ if [ -e /etc/system-image/archive-master.tar.xz ]; then
 fi
 
 # Check for flag file to indicate if system needs to be install in userdata or not
-
-# Check for legacy channel flag and hardlink system.img again
 if [ -e system_in_data ]; then
-    USE_SYSTEM_PARTITION=1
-else
     USE_SYSTEM_PARTITION=0
+else
+    USE_SYSTEM_PARTITION=1
 fi
 
 # However, do not use the block device name in the kernel command line, as that is not consistently
