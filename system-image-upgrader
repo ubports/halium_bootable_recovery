@@ -506,11 +506,11 @@ do
                     ln -s /android/vendor $SYSTEM_MOUNTPOINT/vendor
                 fi
             fi
-            
+
             # Move things to data
             mv data/* /data/ || true
             rm -Rf data || true
-            
+
             # Process partition images
             grep "^/dev" /etc/fstab | while read line; do
                 set -- $line
