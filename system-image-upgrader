@@ -266,7 +266,7 @@ fi
 DEVICE_TARBALL=$(cat $1.applying | grep device | awk '{print $2}')
 # Now, peek into that tarball and see if our flag exists.
 FILE_CONTENTS=$(busybox xzcat /cache/recovery/$DEVICE_TARBALL | busybox tar --numeric-owner -tvf -)
-if [ "$FILE_CONTENTS" == "*system_in_data*" ]; then
+if [[ "$FILE_CONTENTS" = *"system_in_data"* ]]; then
     USE_SYSTEM_PARTITION=0
 else
     USE_SYSTEM_PARTITION=1
