@@ -268,6 +268,8 @@ DEVICE_TARBALL=$(cat $1.applying | grep device | awk '{print $2}')
 FILE_CONTENTS=$(busybox xzcat /cache/recovery/$DEVICE_TARBALL | busybox tar --numeric-owner -tvf -)
 if [[ "$FILE_CONTENTS" = *"system_in_data"* ]]; then
     USE_SYSTEM_PARTITION=0
+elif grep -q "system_in_data=1" /proc/cmdline; then
+    USE_SYSTEM_PARTITION=0
 else
     USE_SYSTEM_PARTITION=1
 fi
