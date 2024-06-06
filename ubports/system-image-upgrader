@@ -538,11 +538,18 @@ do
                 path=$1
 
                 if [ -e partitions/${part}.img ] && [ -e $path ]; then
-                    echo "Flashing ${part} at ${path}"
-                    if simgtest partitions/${part}.img; then
+                    if simgtest partitions/${part}.img 2>/dev/null; then
+                        echo "Flashing sparse ${part} at ${path}"
                         simg2img partitions/${part}.img ${path}
                     else
-                        dd bs=8M if=partitions/${part}.img of=${path}
+                        echo "Checking if ${part} at ${path} needs updating..."
+                        new_size=$(wc -c < partitions/${part}.img)
+                        if ! head -c ${new_size} ${path} | cmp -s partitions/${part}.img; then
+                            echo "  Flashing (binary content differs)..."
+                            cat partitions/${part}.img > ${path}
+                        else
+                            echo "  Already up-to-date"
+                        fi
                     fi
                     sync
                     rm partitions/${part}.img
