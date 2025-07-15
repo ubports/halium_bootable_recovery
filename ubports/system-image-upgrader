@@ -326,7 +326,7 @@ do
                         mount /data || true
                     fi
 
-                    for entry in /data/* /data/.writable_image /data/.factory_wipe; do
+                    for entry in /data/* /data/.writable_image /data/.factory_wipe /data/.fscrypt; do
                         if [ "$USE_SYSTEM_PARTITION" -eq 0 ]; then
                             if [[ ( "$entry" == "/data/ubuntu.img" ) || ( "$entry" == "/data/rootfs.img" ) || ( "$entry" == "/data/system.img" ) || ( "$entry" == "/data/android-rootfs.img" ) ]]; then
                                     continue
