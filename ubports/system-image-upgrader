@@ -374,6 +374,39 @@ migrate_device_to_lvm() {
     return 0
 }
 
+resize_system_partition_in_super() {
+    # $1 => system device path (e.g. /dev/block/mapper/system_a)
+    # $2 => required size in MB
+    # $3 => operation (format|mount)
+    local system_device="$1"
+    local required_size_mb="$2"
+    local operation="$3"
+    local super_device="/dev/block/by-name/super"
+
+    if [ ! -e "$super_device" ]; then
+        echo "Error: super partition $super_device not found"
+        return 1
+    fi
+
+    local slot_suffix
+    slot_suffix=$(getprop ro.boot.slot_suffix)
+    local partition_name="system"
+    if [ -n "$slot_suffix" ]; then
+        partition_name="system${slot_suffix}"
+    fi
+
+    local target_bytes=$((required_size_mb * 1048576))
+    echo "Resizing logical partition $partition_name to ${required_size_mb}MB via lpresize"
+    lpresize "$super_device" "$partition_name" "$target_bytes" || return 1
+
+    if [ "$operation" == "mount" ]; then
+        echo "Resizing filesystem on $system_device"
+        resize2fs "$system_device" || return 1
+    fi
+
+    return 0
+}
+
 ensure_system_partition_size() {
     # $1 => "format" or "mount" - indicates if this is a fresh install or upgrade
     operation="$1"
@@ -449,10 +482,10 @@ ensure_system_partition_size() {
             exit 1
         fi
     else
-        # Future: Implement Android dynamic partition resize here
-        echo "Error: system partition is too small for the rootfs and LVM is not enabled"
-        echo "Set ro.systemimage.use_lvm=true to enable LVM expansion"
-        exit 1
+        if ! resize_system_partition_in_super "$system_device" "$required_size_mb" "$operation"; then
+            echo "Error: failed to resize logical system partition in super"
+            exit 1
+        fi
     fi
 
     echo "System partition expansion complete"
