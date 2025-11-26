@@ -1,0 +1,14 @@
+cc_binary {
+    name: "lpresize",
+    defaults: ["fastboot_defaults"],
+    recovery: true,
+    shared_libs: [
+        "libbase",
+        "liblog",
+        "liblp",
+        "libfs_mgr",
+    ],
+    srcs: [
+        "lpresize.cc",
+    ],
+}
