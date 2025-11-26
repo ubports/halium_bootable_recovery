@@ -204,6 +204,7 @@ cc_binary {
         "bsdtar-recovery",
         "install-system",
         "lvm",
+        "lpresize",
         "replace-system",
         "resize2fs.recovery",
         "setup-fake-cache",
