@@ -307,7 +307,8 @@ LOCAL_REQUIRED_MODULES += \
     toybox_static \
     recovery_mkshrc \
     bu_recovery \
-    static_gpg
+    static_gpg \
+    bsdtar-recovery
 
 # Symlinks
 RECOVERY_TOOLS := \
