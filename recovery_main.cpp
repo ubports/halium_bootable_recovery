@@ -142,6 +142,7 @@ static std::vector<std::string> get_args(const int argc, char** const argv) {
 
   // ----if that doesn't work, try Ubuntu command file
   if (args.size() <= 1) {
+      ensure_path_mounted(UBUNTU_COMMAND_FILE);
       FILE *fp = fopen(UBUNTU_COMMAND_FILE, "r");
       if (fp != nullptr) {
           // there is Ubuntu command file, use it

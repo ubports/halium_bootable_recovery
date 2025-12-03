@@ -118,7 +118,62 @@ int ensure_path_mounted_at(const std::string& path, const std::string& mount_poi
   return android::fs_mgr::EnsurePathMounted(&fstab, path, mount_point) ? 0 : -1;
 }
 
+// Check if a path is already mounted
+// Based on non-exported GetEntryForMountPoint in fs_mgr
+static bool is_path_mounted(const std::string& mount_point) {
+  android::fs_mgr::Fstab mounted_fstab;
+  if (!android::fs_mgr::ReadFstabFromFile("/proc/mounts", &mounted_fstab)) {
+    return false;
+  }
+  for (const auto& entry : mounted_fstab) {
+    if (entry.mount_point == mount_point) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Determine the location used for Ubuntu Touch OTA on /data partition
+static std::string get_ota_cache_location() {
+  if (access("/data/android-data/cache/ubuntu_updater.log", F_OK) == 0 ||
+      access("/data/android-data/cache/recovery/ubuntu_command", F_OK) == 0) {
+    return "/data/android-data/cache";
+  }
+  return "/data/cache";
+}
+
+// Bind-mount a folder from /data to /cache if not already mounted
+// This assumes none of supported devices use a dedicated cache partition
+static int ensure_cache_mounted() {
+  if (is_path_mounted("/cache")) {
+    return 0;
+  }
+
+  if (android::fs_mgr::EnsurePathMounted(&fstab, "/data") != true) {
+    LOG(ERROR) << "Failed to mount /data for /cache workaround";
+    return -1;
+  }
+
+  // Historically can be either /data/cache or /data/android-data/cache
+  std::string cache_source = get_ota_cache_location();
+
+  // Create mount target and source directory in case they don't exist
+  mkdir("/cache", 0770);
+  mkdir(cache_source.c_str(), 0770);
+
+  if (mount(cache_source.c_str(), "/cache", nullptr, MS_BIND, nullptr) != 0) {
+    PLOG(ERROR) << "Failed to bind mount " << cache_source << " to /cache";
+    return -1;
+  }
+  LOG(INFO) << "Bind mounted " << cache_source << " to /cache";
+  return 0;
+}
+
 int ensure_path_mounted(const std::string& path) {
+  // UBPorts: if path starts with /cache, bind-mount from /data instead
+  if (path.find("/cache") == 0) {
+    return ensure_cache_mounted();
+  }
   // Mount at the default mount point.
   return android::fs_mgr::EnsurePathMounted(&fstab, path) ? 0 : -1;
 }
