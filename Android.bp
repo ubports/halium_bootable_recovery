@@ -145,6 +145,7 @@ cc_binary {
         "busybox_recovery",
         "e2fsck_recovery",
         "gpg",
+        "bsdtar-recovery",
         "install-system",
         "replace-system",
         "simg2img_ubports",
