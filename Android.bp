@@ -196,6 +196,7 @@ cc_binary {
         "e2fsck.recovery",
         "gpg",
         "install-system",
+        "lvm",
         "replace-system",
         "simg2img_ubports",
         "simgtest_ubports",
