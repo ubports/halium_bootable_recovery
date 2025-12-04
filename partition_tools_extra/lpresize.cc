@@ -120,11 +120,9 @@ bool ResizePartition(const std::string& super_path, const std::string& partition
         slots = 1;
     }
 
-    for (uint32_t i = 0; i < slots; i++) {
-        if (!UpdatePartitionTable(opener, super_path, *new_metadata.get(), i)) {
-            LOG(ERROR) << "Failed to write metadata for slot " << i;
-            return false;
-        }
+    if (!UpdatePartitionTable(opener, super_path, *new_metadata.get(), slot_number)) {
+        LOG(ERROR) << "Failed to write metadata for slot " << slot_number;
+        return false;
     }
 
     if (was_mapped) {
