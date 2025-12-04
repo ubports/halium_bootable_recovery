@@ -60,6 +60,9 @@ on init
     # pstore/ramoops previous console log
     mount pstore pstore /sys/fs/pstore
 
+    # UBPorts: scan for LVM volumes and create device nodes
+    start vgscan
+
 on boot
     ifup lo
     hostname localhost
@@ -104,6 +107,9 @@ service fastbootd /system/bin/fastbootd
     disabled
     group system
     seclabel u:r:fastbootd:s0
+
+service vgscan /system/bin/vgscan --mknodes
+    oneshot
 
 # Restart adbd so it can run as root
 on property:service.adb.root=1
