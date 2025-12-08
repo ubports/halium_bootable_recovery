@@ -86,7 +86,7 @@ install_keyring() {
     # Unpacking
     TMPDIR=$(mktemp -d -p /tmp/system-image/ tmp.XXXXXXXXXX)
     cd $TMPDIR
-    busybox xzcat $1 | busybox tar --numeric-owner -xf -
+    busybox xzcat $1 | bsdtar --numeric-owner -Ppxf -
     if [ ! -e keyring.json ] || [ ! -e keyring.gpg ]; then
         rm -Rf $TMPDIR
         echo "Invalid keyring: $1"
@@ -265,7 +265,7 @@ fi
 # Check for flag file to indicate if system needs to be install in userdata or not
 DEVICE_TARBALL=$(cat $1.applying | grep device | awk '{print $2}')
 # Now, peek into that tarball and see if our flag exists.
-FILE_CONTENTS=$(busybox xzcat /cache/recovery/$DEVICE_TARBALL | busybox tar --numeric-owner -tvf -)
+FILE_CONTENTS=$(busybox xzcat /cache/recovery/$DEVICE_TARBALL | bsdtar --numeric-owner -tvf -)
 if [[ "$FILE_CONTENTS" = *"system_in_data"* ]]; then
     USE_SYSTEM_PARTITION=0
 elif grep -q "halium.system_in_data=1" /proc/cmdline; then
@@ -487,7 +487,7 @@ do
 
             # Start by removing any file listed in "removed"
             if [ "$FULL_IMAGE" != "1" ]; then
-                busybox xzcat recovery/$2 | busybox tar --numeric-owner -xf - removed >/dev/null 2>&1 || true
+                busybox xzcat recovery/$2 | bsdtar --numeric-owner -pxf - removed >/dev/null 2>&1 || true
                 if [ -e removed ]; then
                     while read file; do
                         rm -Rf $file
@@ -497,7 +497,7 @@ do
             fi
 
             # Unpack everything else on top of the system partition
-            busybox xzcat recovery/$2 | busybox tar --numeric-owner -xf -
+            busybox xzcat recovery/$2 | bsdtar --numeric-owner -Ppxf -
             rm -f removed
 
             # WORKAROUND: fix erroneous vendor symlink
