@@ -503,9 +503,7 @@ int main(int argc, char** argv) {
     device->RemoveMenuItemForAction(Device::ENTER_RESCUE);
   }
 
-  if (get_build_type() != "userdebug") {
     device->RemoveMenuItemForAction(Device::ENABLE_ADB);
-  }
 
   if (get_build_type() == "user") {
     device->RemoveMenuItemForAction(Device::WIPE_SYSTEM);
