@@ -216,6 +216,7 @@ cc_binary {
         "simgtest_ubports",
         "system-image-upgrader",
         "tune2fs.recovery",
+        "unpackbootimg_ubports",
     ],
 }
 

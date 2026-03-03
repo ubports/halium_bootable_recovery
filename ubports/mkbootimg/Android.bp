@@ -1,0 +1,12 @@
+//
+// Copyright (C) 2026 The UBports Project
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_binary {
+    name: "unpackbootimg_ubports",
+    stem: "unpackbootimg",
+    srcs: ["unpackbootimg.c"],
+    recovery: true,
+}
