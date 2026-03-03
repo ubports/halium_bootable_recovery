@@ -1,5 +1,15 @@
 import /init.recovery.${ro.hardware}.rc
 
+service setup_usb /system/bin/setup-usb
+    disabled
+    oneshot
+    user root
+
+service setup_fake_cache /system/bin/setup-fake-cache
+    disabled
+    oneshot
+    user root
+
 on early-init
     # Set the security context of /postinstall if present.
     restorecon /postinstall
@@ -10,10 +20,13 @@ on early-init
 
     start ueventd
 
-    setprop sys.usb.configfs 0
+    start setup_usb
 
     # Set property to allow installers to identify recovery
     setprop ro.ubuntu.recovery true
+
+    # Default to /cache with userdata backing
+    setprop ro.ubuntu.recovery.fakecache true
 
 on init
     export ANDROID_ROOT /system
@@ -163,6 +176,10 @@ on fs
     mount functionfs adb /dev/usb-ffs/adb uid=2000,gid=2000
     mkdir /dev/usb-ffs/fastboot 0770 system system
     mount functionfs fastboot /dev/usb-ffs/fastboot rmode=0770,fmode=0660,uid=1000,gid=1000
+
+on post-fs-data
+    start setup_fake_cache
+    wait_for_prop halium.datamount.done 1
 
 on property:sys.usb.config=adb
     start adbd

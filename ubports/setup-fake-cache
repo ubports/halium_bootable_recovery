@@ -1,0 +1,25 @@
+#!/system/bin/sh
+
+exit_mounted() {
+    setprop halium.datamount.done 1
+    exit $1
+}
+
+case "$(getprop ro.ubuntu.recovery.fakecache)" in
+true|1) : ;;
+*) exit_mounted 0 ;;
+esac
+
+RETRY_COUNTER=0
+while [ $(( RETRY_COUNTER += 1 )) -le 3 ]; do
+    mount /dev/block/by-name/userdata /data > /dev/kmsg && break || sleep 1
+done
+
+if [ $RETRY_COUNTER -eq 4 ]; then
+    echo "setup-fake-cache: reached maximum number of retries" > /dev/kmsg
+    exit_mounted 1
+fi
+
+mkdir /data/cache > /dev/kmsg
+mount -o bind /data/cache /cache > /dev/kmsg
+exit_mounted 0

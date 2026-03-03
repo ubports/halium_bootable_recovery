@@ -1,0 +1,9 @@
+#!/system/bin/sh
+
+if [ -e /sys/class/android_usb/android0/enable ]; then
+    # avoid ConfigFS on legacy devices where android_usb remains functional
+    setprop sys.usb.configfs 0
+    exit 0
+fi
+
+setprop sys.usb.configfs 1

@@ -204,6 +204,8 @@ cc_binary {
         "bsdtar-recovery",
         "install-system",
         "replace-system",
+        "setup-fake-cache",
+        "setup-usb",
         "simg2img_ubports",
         "simgtest_ubports",
         "system-image-upgrader",
