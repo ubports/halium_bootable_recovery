@@ -41,6 +41,24 @@ check_filesystem() {
         exit 1
     fi
     set -e
+
+    # Workaround for resize2fs in case of clock inconsistency
+    # tune2fs -l formats using ctime, e. g. "Thu Jan  1 07:17:03 1970"
+    # which cannot be parsed by toybox's date, so below is the ugly conversion
+    last_mount_time_fmt=$(tune2fs -l "$1" 2>/dev/null | awk -F': +' '
+        /Last mount time:/ {
+            if ($2 != "n/a" && $2 != "") {
+                split($2, parts, " ")
+                # parts: 1:DayOfWeek, 2:Month, 3:Day, 4:Time, 5:Year
+                m["Jan"]="01"; m["Feb"]="02"; m["Mar"]="03"; m["Apr"]="04"; m["May"]="05"; m["Jun"]="06"
+                m["Jul"]="07"; m["Aug"]="08"; m["Sep"]="09"; m["Oct"]="10"; m["Nov"]="11"; m["Dec"]="12"
+                gsub(/:/, "", parts[4])
+                printf "%04d%s%02d%s", parts[5], m[parts[2]], parts[3], parts[4]
+            }
+        }')
+    if [ -n "$last_mount_time_fmt" ]; then
+        tune2fs -T "$last_mount_time_fmt" "$1" >/dev/null 2>&1 || true
+    fi
 }
 
 verify_signature() {
@@ -364,6 +382,7 @@ migrate_device_to_lvm() {
     if [ -e /dev/ubports/rootfs ]; then
         echo "Resizing filesystem on rootfs to ${required_size_mb}MB"
         lvextend -L "${required_size_mb}M" /dev/ubports/rootfs
+        check_filesystem /dev/ubports/rootfs
         resize2fs /dev/ubports/rootfs
     else
         echo "Error: LVM rootfs logical volume not found after migration"
@@ -396,10 +415,35 @@ resize_system_partition_in_super() {
 
     if [ "$operation" == "mount" ]; then
         echo "Resizing filesystem on $system_device"
+        # check_filesystem has already run as part of mount operation handling
         resize2fs "$system_device" || return 1
     fi
 
     return 0
+}
+
+check_and_enlarge_filesystem() {
+    # $1 => system_device
+    system_device="$1"
+
+    fs_block_count=$(tune2fs -l "$system_device" 2>/dev/null | awk '/Block count:/ {print $3}')
+    fs_block_size=$(tune2fs -l "$system_device" 2>/dev/null | awk '/Block size:/ {print $3}')
+
+    device_size_bytes=$(blockdev --getsize64 "$system_device" 2>/dev/null || echo "0")
+
+    if [ -n "$fs_block_count" ] && [ -n "$fs_block_size" ] && [ "$device_size_bytes" -gt 0 ]; then
+        fs_size_bytes=$(awk "BEGIN {printf \"%.0f\", $fs_block_count * $fs_block_size}")
+
+        # If filesystem size is smaller than device size by more than 1MB
+        diff_mb=$(awk "BEGIN {print int(($device_size_bytes - $fs_size_bytes) / 1048576)}")
+        if [ "$diff_mb" -gt 0 ]; then
+            echo "Filesystem size is smaller than device size, running resize2fs"
+            # check_filesystem has already run as part of mount operation handling
+            resize2fs "$system_device"
+        else
+            echo "Filesystem size matches device size"
+        fi
+    fi
 }
 
 ensure_system_partition_size() {
@@ -427,6 +471,9 @@ ensure_system_partition_size() {
         # Check if current size is sufficient
         if [ "$current_size_mb" -ge "$required_size_mb" ]; then
             echo "System partition size is sufficient"
+            if [ "$operation" == "mount" ]; then
+                check_and_enlarge_filesystem "/dev/ubports/rootfs"
+            fi
             return 0
         fi
 
@@ -437,6 +484,7 @@ ensure_system_partition_size() {
         # Resize filesystem if this is a delta upgrade (mount operation)
         if [ "$operation" == "mount" ]; then
             echo "Resizing filesystem on rootfs"
+            check_filesystem /dev/ubports/rootfs
             resize2fs /dev/ubports/rootfs
         fi
 
@@ -463,6 +511,9 @@ ensure_system_partition_size() {
     # Check if current size is sufficient - no LVM needed
     if [ "$current_size_mb" -ge "$required_size_mb" ]; then
         echo "System partition size is sufficient, no LVM needed"
+        if [ "$operation" == "mount" ]; then
+            check_and_enlarge_filesystem "$system_device"
+        fi
         return 0
     fi
 
