@@ -1,0 +1,236 @@
+#!/bin/sh
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+FIRST_PHYSICAL_EXTENT_OFFSET_BYTES=1048576  # 1MB
+REGULAR_LVM_PHYSICAL_EXTENT_SIZE=1048576    # 1MB
+SECTOR_SIZE=512
+
+print_usage() {
+    echo "Usage: $0 --device=<device> --vg-name=<name>"
+    echo "  --device=<device>    Path to the super device to migrate"
+    echo "  --vg-name=<name>     Volume group name (required)"
+    echo "  --help              Show this help message"
+}
+
+generate_id() {
+    hexdump -n 16 -e '4/4 "%08X"' /dev/urandom | tr -d '\n'
+}
+
+get_device_size() {
+    device="$1"
+    blockdev --getsize64 "$device" 2>/dev/null || {
+        echo "Failed to get device size for $device" >&2
+        exit 1
+    }
+}
+
+create_lvm_metadata_super() {
+    device="$1"
+    device_size="$2"
+    vg_name="$3"
+    slot_suffix=$(getprop ro.boot.slot_suffix)
+
+    # Calculate extents
+    total_extents=$(awk "BEGIN {print int(($device_size - $FIRST_PHYSICAL_EXTENT_OFFSET_BYTES) / $REGULAR_LVM_PHYSICAL_EXTENT_SIZE)}")
+
+    # Generate random IDs (all 32 hex chars without hyphens)
+    vg_id=$(generate_id)
+    pv_id=$(generate_id)
+
+    # Get current time
+    creation_time=$(date +%s)
+
+    echo "Parsing super partition layout..."
+
+    # Get lpdump output and parse it
+    lpdump_output=$(lpdump -s "$slot_suffix" "$device" 2>/dev/null | grep "^super:")
+    if [ -z "$lpdump_output" ]; then
+        echo "Error: Failed to get lpdump output for super partition" >&2
+        exit 1
+    fi
+
+    # Create temporary file to collect partition data
+    tmp_partitions=$(mktemp)
+    tmp_segments=$(mktemp)
+
+    # Parse lpdump output and collect unique partitions
+    echo "$lpdump_output" | while read -r line; do
+        partition=$(echo "$line" | awk '{print $5}')
+        echo "$partition" >> "$tmp_partitions"
+    done
+
+    # Get unique partition names
+    partitions=$(cat "$tmp_partitions" | sort -u)
+
+    echo "Found logical volumes: $partitions"
+
+    # Build segments for each partition
+    echo "$partitions" | while read -r partition; do
+        lv_id=$(generate_id)
+        segment_count=$(echo "$lpdump_output" | grep -w "$partition" | wc -l)
+
+        echo "" >> "$tmp_segments"
+        echo "    $partition {" >> "$tmp_segments"
+        echo "      id = \"$lv_id\"" >> "$tmp_segments"
+        echo "      status = [\"READ\", \"WRITE\", \"VISIBLE\"]" >> "$tmp_segments"
+        echo "      flags = []" >> "$tmp_segments"
+        echo "      creation_time = $creation_time" >> "$tmp_segments"
+        echo "      creation_host = \"localhost\"" >> "$tmp_segments"
+        echo "      segment_count = $segment_count" >> "$tmp_segments"
+        echo "" >> "$tmp_segments"
+
+        seg_num=1
+        lv_start_extent=0
+        echo "$lpdump_output" | grep -w "$partition" | while read -r line; do
+            start_sector=$(echo "$line" | awk '{print $2}')
+            sector_count=$(echo "$line" | awk '{print $6}' | tr -d '(')
+
+            # Check if start sector is aligned to extent boundary
+            if [ $(awk "BEGIN {print $start_sector % 2048}") -ne 0 ]; then
+                echo "Error: Start sector $start_sector for partition $partition is not aligned to 1MB extent boundary" >&2
+                exit 1
+            fi
+
+            # Convert sectors to extents
+            # lpdump sectors include the 1MB header (2048 sectors / 1 extent)
+            # LVM physical extents start from 0 after the metadata area (pe_start = 2048)
+            # So we need to subtract 1 extent to convert from absolute to PE offset
+            start_extent=$(awk "BEGIN {print int($start_sector / 2048) - 1}")
+            extent_count=$(awk "BEGIN {print int($sector_count / 2048)}")
+
+            # Round up sector count if not aligned to extent boundary
+            if [ $(awk "BEGIN {print $sector_count % 2048}") -ne 0 ]; then
+                extent_count=$(awk "BEGIN {print $extent_count + 1}")
+                echo "Note: Rounded up partition $partition segment from $sector_count sectors to $(awk "BEGIN {print $extent_count * 2048}") sectors"
+            fi
+
+            echo "      segment$seg_num {" >> "$tmp_segments"
+            echo "        start_extent = $lv_start_extent" >> "$tmp_segments"
+            echo "        extent_count = $extent_count" >> "$tmp_segments"
+            echo "        type = \"striped\"" >> "$tmp_segments"
+            echo "        stripe_count = 1" >> "$tmp_segments"
+            echo "" >> "$tmp_segments"
+            echo "        stripes = [" >> "$tmp_segments"
+            echo "          \"pv0\", $start_extent" >> "$tmp_segments"
+            echo "        ]" >> "$tmp_segments"
+            echo "      }" >> "$tmp_segments"
+
+            lv_start_extent=$(awk "BEGIN {print $lv_start_extent + $extent_count}")
+            seg_num=$((seg_num + 1))
+        done
+
+        echo "    }" >> "$tmp_segments"
+    done
+
+    # Generate complete metadata file
+    cat > /tmp/vgcfgrestore.txt << EOF
+contents = "Text Format Volume Group"
+version = 1
+description = "Generated by lvm-super-migrator"
+creation_host = "localhost"
+creation_time = $creation_time
+$vg_name {
+  id = "$vg_id"
+  seqno = 0
+  format = "lvm2"
+  status = ["READ", "WRITE", "RESIZEABLE"]
+  flags = []
+  extent_size = 2048
+  max_lv = 0
+  max_pv = 1
+  metadata_copies = 0
+  physical_volumes {
+
+    pv0 {
+      id = "$pv_id"
+      device = "$device"
+      status = ["ALLOCATABLE"]
+      flags = []
+      dev_size = $(awk "BEGIN {print $total_extents * 2048}")
+      pe_start = 2048
+      pe_count = $total_extents
+    }
+  }
+  logical_volumes {
+    $(cat "$tmp_segments")
+  }
+}
+EOF
+
+    # Clean up temp files
+    rm -f "$tmp_partitions" "$tmp_segments"
+
+    # Create physical volume
+    pvcreate --uuid "$pv_id" --restorefile /tmp/vgcfgrestore.txt "$device"
+
+    # Restore volume group
+    vgcfgrestore -f /tmp/vgcfgrestore.txt "$vg_name"
+
+    # Enable the logical volume group
+    vgchange -ay "$vg_name"
+
+    # Remove temporary metadata file
+    rm -f /tmp/vgcfgrestore.txt
+
+    echo "Created volume group: $vg_name"
+    echo "Logical volumes: $partitions"
+}
+
+# Parse command line arguments
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --help)
+            print_usage
+            exit 0
+            ;;
+        --device=*)
+            DEVICE_PATH="${1#*=}"
+            shift
+            ;;
+        --vg-name=*)
+            VG_NAME="${1#*=}"
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            print_usage
+            exit 1
+            ;;
+    esac
+done
+
+# Validate required arguments
+if [ -z "${DEVICE_PATH:-}" ]; then
+    echo "Error: --device argument is required" >&2
+    print_usage
+    exit 1
+fi
+
+if [ -z "${VG_NAME:-}" ]; then
+    echo "Error: --vg-name argument is required" >&2
+    print_usage
+    exit 1
+fi
+
+# Check if volume group already exists
+if vgs "$VG_NAME" >/dev/null 2>&1; then
+    echo "Error: Volume group '$VG_NAME' already exists" >&2
+    echo "Cannot create a new volume group with the same name" >&2
+    exit 1
+fi
+
+# Main migration logic
+echo "Starting LVM super partition migration for device: $DEVICE_PATH"
+
+# Get device size
+DEVICE_SIZE=$(get_device_size "$DEVICE_PATH")
+DEVICE_SIZE_MB=$(awk "BEGIN {print int($DEVICE_SIZE / 1048576)}")
+echo "Device size: $DEVICE_SIZE bytes ($DEVICE_SIZE_MB MB)"
+
+# Create LVM metadata from super partition layout
+echo "Creating LVM metadata from super partition layout..."
+create_lvm_metadata_super "$DEVICE_PATH" "$DEVICE_SIZE" "$VG_NAME"
+
+echo "Migration completed successfully!"
