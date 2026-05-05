@@ -193,6 +193,7 @@ cc_binary {
         "mkshrc.recovery",
         "reboot.recovery",
         "recovery_deps",
+        "servicemanager.recovery",
         "ueventd.rc.recovery",
 
         // ubports
