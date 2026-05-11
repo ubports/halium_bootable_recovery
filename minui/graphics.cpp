@@ -395,13 +395,15 @@ void gr_flip() {
 }
 
 std::unique_ptr<MinuiBackend> create_backend(GraphicsBackend backend) {
+  bool is_qcom_hw = (android::base::GetProperty("ro.hardware", "") == "qcom");
+  bool use_qti_drm = android::base::GetBoolProperty("ro.minui.use_qti_drm", is_qcom_hw);
   switch (backend) {
     case GraphicsBackend::DRM:
-#ifdef TARGET_RECOVERY_USES_QTI_DRM
-      return std::make_unique<MinuiBackendDrmQti>();
-#else
-      return std::make_unique<MinuiBackendDrm>();
-#endif
+      if (use_qti_drm) {
+        return std::make_unique<MinuiBackendDrmQti>();
+      } else {
+        return std::make_unique<MinuiBackendDrm>();
+      }
     case GraphicsBackend::FBDEV:
       return std::make_unique<MinuiBackendFbdev>();
     default:
