@@ -38,6 +38,7 @@ cc_library {
         "events.cpp",
         "graphics.cpp",
         "graphics_drm.cpp",
+        "graphics_drm_qti.cpp",
         "graphics_fbdev.cpp",
         "resources.cpp",
     ],
