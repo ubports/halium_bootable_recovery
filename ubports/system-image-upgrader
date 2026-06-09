@@ -287,112 +287,6 @@ mount_data() {
     fi
 }
 
-migrate_device_to_lvm() {
-    # $1 => "format" or "mount" - indicates if this is a fresh install or upgrade
-    # $2 => system_device - the raw partition device path
-    # $3 => required_size_mb - required size in MB
-    # $4 => current_size_mb - current raw partition size in MB
-    operation="$1"
-    system_device="$2"
-    required_size_mb="$3"
-    current_size_mb="$4"
-
-    echo "Migrating device to LVM..."
-
-    # Migrate userdata to LVM if not already done
-    if [ ! -e /dev/ubports/userdata ]; then
-        echo "Migrating userdata partition to LVM"
-        userdata_partition=$(awk '$1 !~ /^#/ && $2=="/data" {print $1; exit}' /etc/fstab)
-        if [ -z "$userdata_partition" ]; then
-            echo "Error: Could not find userdata partition in fstab"
-            exit 1
-        fi
-        # Calculate reserve: space we need for system + some buffer
-        userdata_reserve=$(getprop ro.systemimage.lvm_on_userdata_reserve_mb)
-        if [ -z "$userdata_reserve" ]; then
-            # Reserve at least the difference between required and current system size + 1MB for safety
-            space_needed=$((required_size_mb - current_size_mb + 1))
-            [ "$space_needed" -lt 0 ] && space_needed=0
-            userdata_reserve=$space_needed
-            echo "Calculated userdata reserve: ${userdata_reserve}MB (${required_size_mb}MB needed - ${current_size_mb}MB current + 1MB buffer)"
-        fi
-        /system/bin/lvm-fs-migrator --device="$userdata_partition" --vg-name=ubports --lv-name=userdata --reserve="$userdata_reserve"
-    else
-        echo "Userdata already on LVM"
-    fi
-
-    # Now setup system with LVM
-    # Check if we're using super partition
-    if [ -e /dev/block/by-name/super ]; then
-        echo "Setting up super partition with LVM"
-        super_partition="/dev/block/by-name/super"
-
-        # Use temporary VG name to avoid conflict with existing 'ubports' VG from userdata
-        temp_vg_name="ubports_super"
-
-        # Convert Android dynamic partitions to LVM structure
-        /system/bin/lvm-super-migrator --device="$super_partition" --vg-name="$temp_vg_name"
-
-        # Merge with existing ubports VG if it exists
-        if vgs ubports >/dev/null 2>&1; then
-            echo "Merging super VG into ubports VG"
-            vgchange -an "$temp_vg_name"
-            vgmerge ubports "$temp_vg_name"
-        else
-            echo "Renaming VG from $temp_vg_name to ubports"
-            vgrename "$temp_vg_name" ubports
-        fi
-
-        # Rename system or system_a to rootfs
-        [ -e /dev/ubports/system ] && lvrename ubports system rootfs
-        [ -e /dev/ubports/system_a ] && lvrename ubports system_a rootfs
-    else
-        # Legacy system partition
-        if [ "$operation" == "format" ]; then
-            echo "Setting up system partition with LVM (fresh install)"
-            # Fresh install - just create LVM structure, no need to migrate data
-            # Create physical volume
-            pvcreate "$system_device"
-            # Create volume group (may already exist from userdata)
-            vgcreate -s 1M ubports "$system_device" 2>/dev/null || vgextend ubports "$system_device"
-            # Create logical volume with required size
-            lvcreate -L "${required_size_mb}M" -n rootfs ubports
-        else
-            echo "Migrating system partition to LVM (delta upgrade)"
-            # Delta upgrade - preserve existing data
-
-            # Use temporary VG name to avoid conflict with existing 'ubports' VG from userdata
-            temp_vg_name="ubports_system"
-
-            /system/bin/lvm-fs-migrator --device="$system_device" --vg-name="$temp_vg_name" --lv-name=rootfs
-
-            # Merge with existing ubports VG if it exists
-            if vgs ubports >/dev/null 2>&1; then
-                echo "Merging system VG into ubports VG"
-                vgchange -an "$temp_vg_name"
-                vgmerge ubports "$temp_vg_name"
-            else
-                echo "Renaming VG from $temp_vg_name to ubports"
-                vgrename "$temp_vg_name" ubports
-            fi
-        fi
-    fi
-
-    # Resize the rootfs logical volume to the required size
-    if [ -e /dev/ubports/rootfs ]; then
-        echo "Resizing filesystem on rootfs to ${required_size_mb}MB"
-        lvextend -L "${required_size_mb}M" /dev/ubports/rootfs
-        check_filesystem /dev/ubports/rootfs
-        resize2fs /dev/ubports/rootfs
-    else
-        echo "Error: LVM rootfs logical volume not found after migration"
-        exit 1
-    fi
-
-    echo "LVM migration complete"
-    return 0
-}
-
 resize_system_partition_in_super() {
     # $1 => system device path (e.g. /dev/block/mapper/system_a)
     # $2 => required size in MB
@@ -547,11 +441,9 @@ ensure_system_partition_size() {
     # Check if LVM expansion is enabled
     use_lvm=$(getprop ro.systemimage.use_lvm)
     if [ "$use_lvm" = "true" ] || [ "$use_lvm" = "1" ]; then
-        echo "Using LVM to expand system partition"
-        if ! migrate_device_to_lvm "$operation" "$system_device" "$required_size_mb" "$current_size_mb"; then
-            echo "Error: failed to migrate device partitions to LVM"
-            exit 1
-        fi
+        # The migration is performed by recovery before the update starts
+        echo "Error: system partition was expected to be already migrated to LVM"
+        exit 1
     else
         remove_logical_partitions_in_super "$(getprop ro.systemimage.remove_dynparts)"
         remove_logical_partitions_in_super "$(getprop ro.systemimage.remove_dynparts_slot_a)" "_a"
@@ -627,6 +519,7 @@ do
                         # Ensure system partition size before formatting (full upgrade path)
                         ensure_system_partition_size "format"
                         # If LVM migration occurred, switch to the logical volume before formatting
+                        vgchange -ay ubports 2>/dev/null || true
                         if [ -e /dev/ubports/rootfs ]; then
                             SYSTEM_PARTITION=/dev/ubports/rootfs
                         fi
@@ -771,13 +664,15 @@ do
                         umount $SYSTEM_MOUNTPOINT || true
                         umount /system_root || true
                         umount /mnt/system || true
-                        check_filesystem $SYSTEM_PARTITION
-                        # Ensure system partition size before mounting (delta upgrade path)
-                        ensure_system_partition_size "mount"
-                        # If LVM migration occurred, switch to the logical volume before mounting
+                        # If LVM migration occurred, switch to the logical volume so we
+                        # check, size and mount the LV instead of the underlying PV
+                        vgchange -ay ubports 2>/dev/null || true
                         if [ -e /dev/ubports/rootfs ]; then
                             SYSTEM_PARTITION=/dev/ubports/rootfs
                         fi
+                        check_filesystem $SYSTEM_PARTITION
+                        # Ensure system partition size before mounting (delta upgrade path)
+                        ensure_system_partition_size "mount"
                         mount $SYSTEM_PARTITION "$SYSTEM_MOUNTPOINT"
                     else
                         check_filesystem /data/ubuntu.img
