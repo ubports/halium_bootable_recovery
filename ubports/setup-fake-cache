@@ -10,13 +10,22 @@ true|1) : ;;
 *) exit_mounted 0 ;;
 esac
 
+# Try to activate an LVM VG on userdata; use it if exists, otherwise
+# fall back to the raw partition (not yet migrated, or LVM not in use)
+vgchange -ay ubports > /dev/kmsg 2>&1 || true
+if [ -e /dev/ubports/userdata ]; then
+    MOUNT_DEV=/dev/ubports/userdata
+else
+    MOUNT_DEV=/dev/block/by-name/userdata
+fi
+
 RETRY_COUNTER=0
 while [ $(( RETRY_COUNTER += 1 )) -le 3 ]; do
-    mount /dev/block/by-name/userdata /data > /dev/kmsg && break || sleep 1
+    mount "$MOUNT_DEV" /data > /dev/kmsg && break || sleep 1
 done
 
 if [ $RETRY_COUNTER -eq 4 ]; then
-    echo "setup-fake-cache: reached maximum number of retries" > /dev/kmsg
+    echo "setup-fake-cache: reached maximum number of retries for $MOUNT_DEV" > /dev/kmsg
     exit_mounted 1
 fi
 
