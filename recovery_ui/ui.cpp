@@ -198,6 +198,12 @@ bool RecoveryUI::InitScreensaver() {
   if (!android::base::WriteStringToFile(std::to_string(brightness_normal_value_),
                                         brightness_file_)) {
     PLOG(WARNING) << "Failed to set brightness";
+  }
+  // On some devices (e.g. SDM845 OnePlus 6) above "fails" with EINVAL but 50% brightness is set
+  unsigned int new_value;
+  if (!android::base::ReadFileToString(brightness_file_, &content) ||
+      !android::base::ParseUint(android::base::Trim(content), &new_value) ||
+      new_value != brightness_normal_value_) {
     return false;
   }
 
