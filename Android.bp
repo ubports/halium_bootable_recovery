@@ -204,6 +204,7 @@ cc_binary {
         "bsdtar-recovery",
         "install-system",
         "lpresize",
+        "lpremove",
         "lvm",
         "lvm-fs-migrator",
         "lvm-super-migrator",
