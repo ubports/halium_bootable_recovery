@@ -39,6 +39,13 @@ static constexpr uint64_t kLvmExtentSizeBytes = kLvmExtentSizeSectors * 512;
 // Temporary metadata file used during migration.
 static constexpr const char* kMetadataPath = "/tmp/lvm_migrator_vgcfg.txt";
 
+// Backup of the trailing 1MB of a filesystem lvm-fs-migrator could not
+// shrink (tail relocation); the orchestrator writes it back after
+// extending the LV past the original partition size.
+static inline std::string TailBackupPath(const std::string& lv_name) {
+    return "/tmp/lvm-migrate-tail-" + lv_name + ".bin";
+}
+
 // Generate an LVM UUID in XXXXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXXXX format
 // (6-4-4-4-4-4-6 groups of uppercase hex, 32 chars + 6 hyphens = 38 chars).
 static inline std::string GenerateId() {
@@ -103,6 +110,9 @@ static inline std::string ResolvePath(const std::string& path) {
 static inline bool VolumeGroupExists(const std::string& vg_name) {
     return RunCommand({"vgs", "--noheadings", vg_name}) == 0;
 }
+
+// The ext2/3/4 superblock begins 1024 bytes into the partition.
+static constexpr uint64_t kExt4SuperblockOffset = 1024;
 
 // Run pvcreate + vgcfgrestore + vgchange to bring up the volume group.
 // device_path must be a resolved (non-symlink) block device path; use
