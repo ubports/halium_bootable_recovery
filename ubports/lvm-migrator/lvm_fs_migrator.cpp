@@ -30,13 +30,88 @@
 
 #include <sys/stat.h>
 
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include <android-base/file.h>
+
+// Whether resize2fs can shrink the filesystem to target_bytes, based on
+// its estimated minimum size (resize2fs -P). On any estimation failure
+// assume it can, preserving the previous try-and-see behavior.
+static bool CanShrinkTo(const std::string& device_path, uint64_t target_bytes) {
+    // Filesystem block size from the superblock: 1024 << s_log_block_size.
+    uint32_t log_block_size = 0;
+    int fd = open(device_path.c_str(), O_RDONLY);
+    if (fd < 0) return true;
+    ssize_t n = pread(fd, &log_block_size, sizeof(log_block_size),
+                      kExt4SuperblockOffset + 24);
+    close(fd);
+    if (n != (ssize_t)sizeof(log_block_size) || log_block_size > 6)
+        return true;
+    uint64_t block_size = 1024ULL << log_block_size;
+
+    std::string cmd = "resize2fs -P " + device_path + " 2>/dev/null";
+    FILE* p = popen(cmd.c_str(), "r");
+    if (p == nullptr) return true;
+    // "Estimated minimum size of the filesystem: 123456"
+    char buf[256];
+    uint64_t min_blocks = 0;
+    bool found = false;
+    while (fgets(buf, sizeof(buf), p) != nullptr) {
+        const char* colon = strrchr(buf, ':');
+        if (colon != nullptr) {
+            char* end = nullptr;
+            uint64_t v = strtoull(colon + 1, &end, 10);
+            if (end != colon + 1) {
+                min_blocks = v;
+                found = true;
+            }
+        }
+    }
+    pclose(p);
+    if (!found) return true;
+
+    uint64_t min_bytes = min_blocks * block_size;
+    std::cout << "Minimum filesystem size: " << min_bytes << " bytes\n";
+    return min_bytes <= target_bytes;
+}
+
+// Save the 1MB at `offset` (about to be overwritten by the relocated
+// header) so the orchestrator can write it back after extending the LV.
+static bool BackupTail(const std::string& device_path, uint64_t offset,
+                       const std::string& path) {
+    std::vector<uint8_t> buf(kLvmExtentSizeBytes);
+    int fd = open(device_path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        std::cerr << "Failed to open " << device_path << ": "
+                  << strerror(errno) << "\n";
+        return false;
+    }
+    if (pread(fd, buf.data(), buf.size(), offset) != (ssize_t)buf.size()) {
+        std::cerr << "Failed to read filesystem tail: " << strerror(errno)
+                  << "\n";
+        close(fd);
+        return false;
+    }
+    close(fd);
+
+    int out = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (out < 0) {
+        std::cerr << "Failed to create " << path << ": " << strerror(errno)
+                  << "\n";
+        return false;
+    }
+    bool ok = write(out, buf.data(), buf.size()) == (ssize_t)buf.size();
+    fsync(out);
+    close(out);
+    if (!ok) std::cerr << "Failed to write " << path << "\n";
+    return ok;
+}
 
 static bool CopyHeader(const std::string& device_path, uint64_t src_offset,
                        uint64_t dst_offset) {
@@ -78,13 +153,17 @@ static std::string BuildMetadata(const std::string& vg_name, const std::string& 
 int main(int argc, char* argv[]) {
     std::string device_path, vg_name, lv_name;
     uint64_t reserved_size_mb = 0;
+    bool allow_tail_relocate = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--help") {
             std::cout << "Usage: lvm-fs-migrator --device=<dev> --vg-name=<name>"
-                         " --lv-name=<name> [--reserve=<mb>]\n";
+                         " --lv-name=<name> [--reserve=<mb>]"
+                         " [--allow-tail-relocate]\n";
             return 0;
+        } else if (arg == "--allow-tail-relocate") {
+            allow_tail_relocate = true;
         } else if (arg.rfind("--device=", 0) == 0) {
             device_path = arg.substr(9);
         } else if (arg.rfind("--vg-name=", 0) == 0) {
@@ -162,13 +241,29 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // -f: resize2fs's superblock timestamp check misfires on devices with
-    // an unreliable recovery clock; the filesystem was checked just above.
-    std::cout << "Resizing filesystem to " << filesystem_size_mb << " MB...\n";
-    if (RunCommand({"resize2fs", "-f", device_path,
-                    std::to_string(filesystem_size_mb) + "M"}) != 0) {
-        std::cerr << "resize2fs failed\n";
-        return 1;
+    if (!CanShrinkTo(device_path, filesystem_size)) {
+        if (!allow_tail_relocate || reserved_size_mb > 0) {
+            std::cerr << "Filesystem cannot shrink to " << filesystem_size_mb
+                      << " MB; aborting\n";
+            return 1;
+        }
+        // The filesystem cannot give up even the single MB that LVM
+        // metadata needs. Back up the trailing 1MB (about to be overwritten
+        // by the relocated header) and leave the filesystem at full size;
+        // the orchestrator extends the LV past the original partition size
+        // and restores the tail there.
+        std::string tail_path = TailBackupPath(lv_name);
+        std::cout << "Filesystem too full to shrink; backing up trailing"
+                     " 1MB to " << tail_path << "\n";
+        if (!BackupTail(device_path, filesystem_size, tail_path)) return 1;
+    } else {
+        std::cout << "Resizing filesystem to " << filesystem_size_mb
+                  << " MB...\n";
+        if (RunCommand({"resize2fs", "-f", device_path,
+                        std::to_string(filesystem_size_mb) + "M"}) != 0) {
+            std::cerr << "resize2fs failed\n";
+            return 1;
+        }
     }
 
     // Copy the 1MB superblock to the end of the filesystem area so LVM can
