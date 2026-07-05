@@ -11,9 +11,14 @@ true|1) : ;;
 *) exit_mounted 0 ;;
 esac
 
+USERDATA=/dev/block/by-name/userdata
+if abm is-multiboot; then
+    abm fixup-fstab
+    USERDATA=$(awk '$2=="/data" {print $1}' /etc/recovery.fstab)
+fi
 RETRY_COUNTER=0
 while [ $(( RETRY_COUNTER += 1 )) -le 3 ]; do
-    mount /dev/block/by-name/userdata /data && break || sleep 1
+    mount $USERDATA /data && break || sleep 1
 done
 
 if [ $RETRY_COUNTER -eq 4 ]; then
