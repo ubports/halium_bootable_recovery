@@ -196,6 +196,7 @@ cc_binary {
         "ueventd.rc.recovery",
 
         // ubports
+        "abm",
         "archive-master.tar.xz",
         "archive-master.tar.xz.asc",
         "busybox_recovery",
