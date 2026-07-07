@@ -422,6 +422,30 @@ resize_system_partition_in_super() {
     return 0
 }
 
+remove_logical_partitions_in_super() {
+    # $1 => comma-separated partition names (e.g. product,system_ext)
+    # $2 => slot suffix (e.g. _a)
+    partition_names="$1"
+    slot_suffix="$2"
+    super_device="/dev/block/by-name/super"
+
+    if [ ! -e "$super_device" ]; then
+        echo "Error: super partition $super_device not found"
+        return 1
+    fi
+
+    (
+        IFS=","
+        set -f
+        for partition_name in $partition_names; do
+            echo "Removing logical partition $partition_name via lpremove"
+            lpremove "$super_device" "$partition_name" --slot="$slot_suffix" || return 1
+        done
+    )
+
+    return $?
+}
+
 check_and_enlarge_filesystem() {
     # $1 => system_device
     system_device="$1"
@@ -529,6 +553,10 @@ ensure_system_partition_size() {
             exit 1
         fi
     else
+        remove_logical_partitions_in_super "$(getprop ro.systemimage.remove_dynparts)"
+        remove_logical_partitions_in_super "$(getprop ro.systemimage.remove_dynparts_slot_a)" "_a"
+        remove_logical_partitions_in_super "$(getprop ro.systemimage.remove_dynparts_slot_b)" "_b"
+
         if ! resize_system_partition_in_super "$system_device" "$required_size_mb" "$operation"; then
             echo "Error: failed to resize logical system partition in super"
             exit 1

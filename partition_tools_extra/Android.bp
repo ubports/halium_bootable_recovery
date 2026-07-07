@@ -12,3 +12,18 @@ cc_binary {
         "lpresize.cc",
     ],
 }
+
+cc_binary {
+    name: "lpremove",
+    defaults: ["fastboot_defaults"],
+    recovery: true,
+    shared_libs: [
+        "libbase",
+        "liblog",
+        "liblp",
+        "libfs_mgr",
+    ],
+    srcs: [
+        "lpremove.cc",
+    ],
+}
