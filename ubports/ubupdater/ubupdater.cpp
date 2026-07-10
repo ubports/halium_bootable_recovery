@@ -20,6 +20,7 @@
 #include <install/install.h>
 #include <recovery_utils/roots.h>
 #include <recovery_ui/ui.h>
+#include <ubupdater/lvm_migration.h>
 
 static const char *UBUNTU_COMMAND_FILE = "/cache/recovery/ubuntu_command";
 static const char *UBUNTU_UPDATE_SCRIPT = "/system/bin/system-image-upgrader";
@@ -51,6 +52,14 @@ void show_installation_error(RecoveryUI *ui, int result) {
 }
 
 InstallResult do_ubuntu_update(RecoveryUI *ui){
+    if (LvmMigrationBlockedOta()) {
+        ui->ShowText(true);
+        ui->Print("Skipping Ubuntu update: LVM storage migration failed.\n");
+        ui->Print("Please go to Advanced -> View recovery logs -> lvm-migrate.log\n");
+        ui->SetProgressType(RecoveryUI::EMPTY);
+        return INSTALL_ERROR;
+    }
+
     // Disable text because otherwise the animation is not showing
     ui->ShowText(false);
 

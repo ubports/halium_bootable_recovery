@@ -22,12 +22,14 @@ cc_library_static {
     ],
 
     srcs: [
+        "lvm_migration.cpp",
         "ubupdater.cpp",
     ],
 
     export_include_dirs: ["include"],
 
     shared_libs: [
+        "libbase",
         "libcrypto",
         "librecovery_ui",
         "libziparchive",
