@@ -347,6 +347,22 @@ static void choose_recovery_file(Device* device) {
       entries.push_back(TEMPORARY_LVM_MIGRATE_LOG_FILE);
     }
 
+    // With the fake cache, copy_logs() keeps rotated logs under
+    // /cache/recovery even though there is no cache volume.
+    for (int i = 0; i < KEEP_LOG_COUNT; i++) {
+      auto add_if_readable = [&](const char* filename) {
+        std::string log_file(filename);
+        if (i > 0) {
+          log_file += "." + std::to_string(i);
+        }
+        if (access(log_file.c_str(), R_OK) == 0) {
+          entries.push_back(std::move(log_file));
+        }
+      };
+      add_if_readable(LAST_LOG_FILE);
+      add_if_readable(LAST_KMSG_FILE);
+    }
+
     entries.push_back(TEMPORARY_KMSG_FILE);
   }
 

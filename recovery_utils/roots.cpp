@@ -418,7 +418,11 @@ int setup_install_mounts() {
 
 bool HasCache() {
   CHECK(!fstab.empty());
-  static bool has_cache = volume_for_mount_point(CACHE_ROOT) != nullptr;
+  // A cache volume in the fstab is meaningless when the fake cache is
+  // active: /cache is a bind mount backed by userdata
+  static bool has_cache =
+      !android::base::GetBoolProperty("ro.ubuntu.recovery.fakecache", false) &&
+      volume_for_mount_point(CACHE_ROOT) != nullptr;
   return has_cache;
 }
 
