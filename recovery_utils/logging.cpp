@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/klog.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -30,6 +31,7 @@
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/unique_fd.h>
 #include <private/android_filesystem_config.h> /* for AID_SYSTEM */
@@ -217,13 +219,25 @@ void copy_logs(bool save_current_log) {
   copy_log_file_to_pmsg(Paths::Get().temporary_log_file(), LAST_LOG_FILE);
   copy_log_file_to_pmsg(Paths::Get().temporary_install_file(), LAST_INSTALL_FILE);
 
+  // With the fake cache active there is no cache volume, but /cache is
+  // still a writable filesystem backed by userdata and can keep the logs.
+  bool fake_cache =
+      android::base::GetBoolProperty("ro.ubuntu.recovery.fakecache", false);
+
   // We can do nothing for now if there's no /cache partition.
-  if (!HasCache()) {
+  if (!HasCache() && !fake_cache) {
     return;
   }
 
-  ensure_path_mounted(LAST_LOG_FILE);
-  ensure_path_mounted(LAST_KMSG_FILE);
+  if (HasCache()) {
+    ensure_path_mounted(LAST_LOG_FILE);
+    ensure_path_mounted(LAST_KMSG_FILE);
+  } else if (access(CACHE_LOG_DIR, F_OK) != 0 &&
+             mkdir(CACHE_LOG_DIR, 0755) != 0) {
+    // Fake cache is not mounted; nowhere to keep the logs.
+    PLOG(WARNING) << "Cannot create " << CACHE_LOG_DIR << " for logs";
+    return;
+  }
   rotate_logs(LAST_LOG_FILE, LAST_KMSG_FILE);
 
   // Copy logs to cache so the system can find out what happened.
