@@ -26,6 +26,7 @@ constexpr const char kDefaultTemporaryLogFile[] = "/tmp/recovery.log";
 constexpr const char kDefaultTemporaryUpdateBinary[] = "/tmp/update-binary";
 
 constexpr const char kDefaultUbuntuUpdaterLogFile[] = "/cache/ubuntu_updater.log";
+constexpr const char kDefaultLvmMigrateLogFile[] = "/cache/lvm-migrate.log";
 
 Paths& Paths::Get() {
   static Paths paths;
@@ -41,4 +42,5 @@ Paths::Paths()
       temporary_install_file_(kDefaultTemporaryInstallFile),
       temporary_log_file_(kDefaultTemporaryLogFile),
       temporary_update_binary_(kDefaultTemporaryUpdateBinary),
-      ubuntu_updater_log_file_(kDefaultUbuntuUpdaterLogFile) {}
+      ubuntu_updater_log_file_(kDefaultUbuntuUpdaterLogFile),
+      lvm_migrate_log_file_(kDefaultLvmMigrateLogFile) {}

@@ -63,6 +63,7 @@
 #include "recovery_utils/roots.h"
 #include "volclient.h"
 
+#include <ubupdater/lvm_migration.h>
 #include <ubupdater/ubupdater.h>
 
 using android::volmgr::VolumeManager;
@@ -337,6 +338,13 @@ static void choose_recovery_file(Device* device) {
     // Add Ubuntu Touch specific log paths
     if (access(Paths::Get().ubuntu_updater_log_file().c_str(), R_OK) != -1) {
       entries.push_back(Paths::Get().ubuntu_updater_log_file());
+    }
+
+    if (access(Paths::Get().lvm_migrate_log_file().c_str(), R_OK) != -1) {
+      entries.push_back(Paths::Get().lvm_migrate_log_file());
+    } else if (access(TEMPORARY_LVM_MIGRATE_LOG_FILE, R_OK) != -1) {
+      // The copy to /cache never happened (e.g. remount failed).
+      entries.push_back(TEMPORARY_LVM_MIGRATE_LOG_FILE);
     }
 
     entries.push_back(TEMPORARY_KMSG_FILE);

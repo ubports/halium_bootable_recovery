@@ -90,6 +90,13 @@ class Paths {
     ubuntu_updater_log_file_ = log_file;
   }
 
+  std::string lvm_migrate_log_file() const {
+    return lvm_migrate_log_file_;
+  }
+  void set_lvm_migrate_log_file(const std::string& log_file) {
+    lvm_migrate_log_file_ = log_file;
+  }
+
  private:
   Paths();
   DISALLOW_COPY_AND_ASSIGN(Paths);
@@ -123,6 +130,9 @@ class Paths {
 
   // Path to the ubuntu updater log file.
   std::string ubuntu_updater_log_file_;
+
+  // Path to the LVM migration log file.
+  std::string lvm_migrate_log_file_;
 };
 
 #endif  // _OTAUTIL_PATHS_H_

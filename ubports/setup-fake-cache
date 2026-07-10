@@ -19,8 +19,15 @@ else
     MOUNT_DEV=/dev/block/by-name/userdata
 fi
 
+# Idempotent: recovery re-runs this after the LVM migration, when /data
+# and/or /cache may already be mounted.
+already_mounted() {
+    grep -q "^[^ ]* $1 " /proc/mounts
+}
+
 RETRY_COUNTER=0
 while [ $(( RETRY_COUNTER += 1 )) -le 3 ]; do
+    already_mounted /data && break
     mount "$MOUNT_DEV" /data > /dev/kmsg && break || sleep 1
 done
 
@@ -29,6 +36,8 @@ if [ $RETRY_COUNTER -eq 4 ]; then
     exit_mounted 1
 fi
 
-mkdir /data/cache > /dev/kmsg
-mount -o bind /data/cache /cache > /dev/kmsg
+if ! already_mounted /cache; then
+    mkdir -p /data/cache > /dev/kmsg
+    mount -o bind /data/cache /cache > /dev/kmsg
+fi
 exit_mounted 0

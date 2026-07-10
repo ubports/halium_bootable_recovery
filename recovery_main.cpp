@@ -61,6 +61,7 @@
 #include "recovery_ui/ui.h"
 #include "recovery_utils/logging.h"
 #include "recovery_utils/roots.h"
+#include "ubupdater/lvm_migration.h"
 
 namespace fs = std::filesystem;
 
@@ -536,6 +537,8 @@ int main(int argc, char** argv) {
 
   device->InitDevice();
 
+  bool lvm_migration_attempted = false;
+
   while (true) {
     // We start adbd in recovery for the device with userdebug build or a unlocked bootloader.
     std::string usb_config =
@@ -553,6 +556,15 @@ int main(int argc, char** argv) {
       if (!SetUsbConfig(usb_config)) {
         LOG(ERROR) << "Failed to set USB config to " << usb_config;
       }
+    }
+
+    // UBports: run a pending LVM migration with the install UI showing.
+    // adbd is already up at this point so the migration can be observed
+    // over adb; it does not hold /data open by itself. Must happen before
+    // start_recovery() dispatches the automatic Ubuntu OTA.
+    if (!fastboot && !lvm_migration_attempted) {
+      lvm_migration_attempted = true;
+      MaybeRunLvmMigration(ui);
     }
 
     auto ret = fastboot ? StartFastboot(device, args) : start_recovery(device, args);
