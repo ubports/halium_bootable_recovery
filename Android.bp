@@ -207,6 +207,7 @@ cc_binary {
         "lpremove",
         "lvm",
         "lvm-fs-migrator",
+        "lvm-migrate",
         "lvm-super-migrator",
         "replace-system",
         "resize2fs.recovery",

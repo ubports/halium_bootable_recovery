@@ -26,3 +26,19 @@ cc_binary {
         "-Werror",
     ],
 }
+
+cc_binary {
+    name: "lvm-migrate",
+    recovery: true,
+    srcs: ["lvm_migrate.cpp"],
+    local_include_dirs: ["."],
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "liblog",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}
