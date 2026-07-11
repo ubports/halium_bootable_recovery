@@ -270,6 +270,8 @@ struct Layout {
 
     Content userdata_content = Content::BLANK;
     Content system_content = Content::BLANK;
+    Content system_a_content = Content::BLANK;
+    Content system_b_content = Content::BLANK;
 };
 
 // The by-name directory location varies: most devices expose
@@ -321,6 +323,8 @@ static Layout DetectLayout() {
     if (!l.userdata.empty()) l.userdata_content = ProbeContent(l.userdata);
     if (!l.system_single.empty())
         l.system_content = ProbeContent(l.system_single);
+    if (!l.system_a.empty()) l.system_a_content = ProbeContent(l.system_a);
+    if (!l.system_b.empty()) l.system_b_content = ProbeContent(l.system_b);
 
     return l;
 }
@@ -344,9 +348,10 @@ struct Plan {
     // migrated in place.
     bool userdata_fresh = false;
     bool system_fresh = false;
-    // Sacrifice path: wipe a stale PV label off system and deactivate the
-    // broken VG before rebuilding.
+    // Sacrifice path: wipe stale PV labels and deactivate the broken VG
+    // before rebuilding.
     bool wipe_system = false;
+    bool wipe_spare = false;
     bool deactivate_first = false;
 };
 
@@ -439,10 +444,16 @@ static Plan MakePlan(const Layout& l, const std::string& vg,
 
         // A member partition was erased underneath the VG (e.g.
         // "fastboot erase" during a new installation).
+        if (l.has_super) {
+            Log("lvm-migrate: broken VG rebuild not supported on this"
+                " layout");
+            p.strategy = Strategy::ERROR;
+            return p;
+        }
         if (l.userdata_content == Content::PV) {
-            // The userdata PV is intact, so the missing PV is another
-            // member (erased system?). Refuse to touch anything so the
-            // userdata contents can still be recovered manually.
+            // The userdata PV is intact (on A/B the VG never includes
+            // userdata, so this is unexpected either way). Refuse to touch
+            // anything so its contents can still be recovered manually.
             Log("lvm-migrate: VG " + vg + " is missing "
                 + std::to_string(missing) + " PV(s) but the userdata PV"
                   " is intact; refusing to rebuild so its data can be"
@@ -450,36 +461,35 @@ static Plan MakePlan(const Layout& l, const std::string& vg,
             p.strategy = Strategy::ERROR;
             return p;
         }
-        if (l.userdata_content == Content::UNKNOWN) {
+        if (!l.is_ab && l.userdata_content == Content::UNKNOWN) {
             Log("lvm-migrate: VG " + vg + " is missing PV(s) and userdata"
                 " contents are unrecognized; not touching them");
             p.strategy = Strategy::ERROR;
             return p;
         }
-        if (l.has_super || l.is_ab) {
-            Log("lvm-migrate: broken VG rebuild not supported on this"
-                " layout");
-            p.strategy = Strategy::ERROR;
-            return p;
-        }
-        // userdata itself was erased or reformatted, so the VG protects
-        // nothing anymore; deactivate it and continue with the normal
-        // planning below, which sacrifices the remaining PVs (rootfs is
-        // reinstalled by the OTA).
+        // The VG protects nothing anymore: on A/B it only ever spans the
+        // system slots, and on non-A/B userdata itself was erased or
+        // reformatted. Deactivate it and continue with the normal planning
+        // below, which sacrifices the remaining PVs (rootfs is reinstalled
+        // by the OTA).
         Log("lvm-migrate: VG " + vg + " is missing "
-            + std::to_string(missing) + " PV(s) and userdata is "
-            + ContentName(l.userdata_content) + "; rebuilding");
+            + std::to_string(missing) + " PV(s); rebuilding");
         p.deactivate_first = true;
     }
 
     // A/B without super: system-only migration.
     if (!l.has_super && l.is_ab) {
+        Content src_content, spare_content;
         if (l.active_slot == "_a") {
             p.src = l.system_a;
             p.spare = l.system_b;
+            src_content = l.system_a_content;
+            spare_content = l.system_b_content;
         } else {
             p.src = l.system_b;
             p.spare = l.system_a;
+            src_content = l.system_b_content;
+            spare_content = l.system_a_content;
         }
         uint64_t src_mb = GetSize(p.src) / kExtentSizeBytes;
         if (src_mb >= required_rootfs_mb) {
@@ -489,6 +499,15 @@ static Plan MakePlan(const Layout& l, const std::string& vg,
             p.strategy = Strategy::DONE;
             return p;
         }
+        // Slots hold OS images, never user data, so anything but a healthy
+        // ext4 is sacrificed and rootfs created fresh for the OTA to fill.
+        p.system_fresh = (src_content != Content::EXT4);
+        p.wipe_system = (src_content == Content::PV);
+        p.wipe_spare = (spare_content == Content::PV);
+        if (p.system_fresh)
+            Log("lvm-migrate: active slot contents are "
+                + std::string(ContentName(src_content))
+                + "; creating rootfs from scratch");
         p.strategy = Strategy::AB_SLOT_MERGE;
         return p;
     }
@@ -700,6 +719,11 @@ int main(int argc, char* argv[]) {
         + (layout.system_single.empty()
                ? std::string()
                : std::string(" system_fs=") + ContentName(layout.system_content))
+        + (layout.is_ab
+               ? std::string(" system_a_fs=")
+                     + ContentName(layout.system_a_content) + " system_b_fs="
+                     + ContentName(layout.system_b_content)
+               : std::string())
         + " required_rootfs=" + std::to_string(required_mb) + " MB");
     Plan plan = MakePlan(layout, kVg, required_mb);
 
@@ -711,6 +735,33 @@ int main(int argc, char* argv[]) {
         break;
 
     case Strategy::AB_SLOT_MERGE: {
+        if (plan.deactivate_first) RunOrLog({"vgchange", "-an", kVg});
+        if ((plan.wipe_system && !WipeStart(plan.src)) ||
+            (plan.wipe_spare && !WipeStart(plan.spare))) {
+            Log("lvm-migrate: failed to wipe a stale LVM label");
+            rc = 1;
+            break;
+        }
+
+        if (plan.system_fresh) {
+            // Nothing to preserve on the active slot: build the VG over
+            // both slots directly. rootfs is left without a filesystem;
+            // the installer's "format system" step creates it.
+            Log("lvm-migrate: creating fresh VG over " + plan.src
+                + " and " + plan.spare);
+            if (RunOrLog({"pvcreate", "-y", Resolve(plan.src)}) != 0 ||
+                RunOrLog({"pvcreate", "-y", Resolve(plan.spare)}) != 0 ||
+                RunOrLog({"lvm", "vgcreate", "-s", "1m", kVg,
+                          Resolve(plan.src), Resolve(plan.spare)}) != 0 ||
+                RunOrLog({"lvm", "lvcreate", "-y",
+                          "-L", std::to_string(required_mb) + "M",
+                          "-n", "rootfs", kVg}) != 0) {
+                Log("lvm-migrate: fresh LVM setup failed");
+                rc = 1;
+            }
+            break;
+        }
+
         Log("lvm-migrate: migrating active slot " + plan.src
              + ", extending over spare " + plan.spare);
         if (!RunFsMigrator(plan.src, kVg, "rootfs", 0,
