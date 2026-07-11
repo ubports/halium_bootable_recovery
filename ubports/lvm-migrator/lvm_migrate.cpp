@@ -329,6 +329,8 @@ enum class Strategy {
     DONE,
     AB_SLOT_MERGE,
     NONAB_USERDATA_AND_SYSTEM,
+    NONAB_GROW_ROOTFS,
+    NONAB_CREATE_ROOTFS,
     ERROR,
 };
 
@@ -392,6 +394,33 @@ static Plan PlanForExistingVg(const Layout& l, const std::string& vg,
     if (userdata_bytes == 0) {
         Log("lvm-migrate: VG " + vg + " exists but userdata LV is missing");
         p.strategy = Strategy::ERROR;
+        return p;
+    }
+
+    // A raised size requirement (a newer image needing a bigger rootfs)
+    // must grow the rootfs LV, taking the space back from userdata when
+    // the VG has none free.
+    uint64_t rootfs_bytes = GetLvSize(vg, "rootfs");
+    if (rootfs_bytes == 0) {
+        // An earlier run migrated userdata but died before rootfs was
+        // created; system holds nothing worth preserving at this point.
+        if (l.system_single.empty() || l.has_super) {
+            Log("lvm-migrate: VG " + vg + " exists but rootfs LV is missing");
+            p.strategy = Strategy::ERROR;
+            return p;
+        }
+        Log("lvm-migrate: VG " + vg + " exists but rootfs LV is missing;"
+            " creating it on " + l.system_single);
+        p.src = l.system_single;
+        p.wipe_system = (l.system_content == Content::PV);
+        p.strategy = Strategy::NONAB_CREATE_ROOTFS;
+        return p;
+    }
+    if (rootfs_bytes < required_rootfs_mb * kExtentSizeBytes) {
+        Log("lvm-migrate: rootfs is "
+            + std::to_string(rootfs_bytes / kExtentSizeBytes) + " MB, needs "
+            + std::to_string(required_rootfs_mb) + " MB");
+        p.strategy = Strategy::NONAB_GROW_ROOTFS;
         return p;
     }
 
@@ -851,6 +880,106 @@ int main(int argc, char* argv[]) {
                     std::to_string(required_mb) + "M",
                     std::string(kVg) + "/rootfs"});
             RunOrLog({"resize2fs", "-f", "/dev/" + std::string(kVg) + "/rootfs"});
+        }
+        break;
+    }
+
+    case Strategy::NONAB_GROW_ROOTFS: {
+        std::string rootfs_dev = "/dev/" + std::string(kVg) + "/rootfs";
+        std::string ud_dev = "/dev/" + std::string(kVg) + "/userdata";
+        uint64_t rootfs_mb = GetLvSize(kVg, "rootfs") / kExtentSizeBytes;
+        uint64_t free_mb = GetVgFree(kVg) / kExtentSizeBytes;
+        Log("lvm-migrate: growing rootfs from " + std::to_string(rootfs_mb)
+            + " MB to " + std::to_string(required_mb) + " MB ("
+            + std::to_string(free_mb) + " MB free in VG)");
+
+        if (rootfs_mb + free_mb < required_mb) {
+            // Take the missing space back from the userdata LV. The
+            // filesystem is shrunk first with the exact same size the LV
+            // is reduced to; a mismatch here destroys user data, so both
+            // use the same explicit MB value.
+            uint64_t needed_mb = required_mb - rootfs_mb - free_mb;
+            uint64_t ud_mb = GetLvSize(kVg, "userdata") / kExtentSizeBytes;
+            if (ud_mb <= needed_mb) {
+                Log("lvm-migrate: userdata is too small to give up "
+                    + std::to_string(needed_mb) + " MB");
+                rc = 1;
+                break;
+            }
+            uint64_t new_ud_mb = ud_mb - needed_mb;
+            Log("lvm-migrate: shrinking userdata from " + std::to_string(ud_mb)
+                + " MB to " + std::to_string(new_ud_mb) + " MB");
+            int fsck = RunOrLog({"e2fsck", "-f", "-y", ud_dev});
+            if (fsck != 0 && fsck != 1) {
+                Log("lvm-migrate: userdata filesystem check failed");
+                rc = 1;
+                break;
+            }
+            // resize2fs refuses upfront when the data does not fit.
+            if (RunOrLog({"resize2fs", "-f", ud_dev,
+                          std::to_string(new_ud_mb) + "M"}) != 0) {
+                Log("lvm-migrate: userdata cannot shrink by "
+                    + std::to_string(needed_mb) + " MB; free up space"
+                      " and retry");
+                rc = 1;
+                break;
+            }
+            if (RunOrLog({"lvm", "lvreduce", "-f", "-L",
+                          std::to_string(new_ud_mb) + "M",
+                          std::string(kVg) + "/userdata"}) != 0) {
+                Log("lvm-migrate: lvreduce failed");
+                rc = 1;
+                break;
+            }
+        }
+
+        if (RunOrLog({"lvextend", "-L", std::to_string(required_mb) + "M",
+                      std::string(kVg) + "/rootfs"}) != 0) {
+            Log("lvm-migrate: extending rootfs failed");
+            rc = 1;
+            break;
+        }
+        int fsck = RunOrLog({"e2fsck", "-f", "-y", rootfs_dev});
+        if (fsck == 0 || fsck == 1) {
+            if (RunOrLog({"resize2fs", "-f", rootfs_dev}) != 0) {
+                Log("lvm-migrate: growing the rootfs filesystem failed");
+                rc = 1;
+            }
+        } else {
+            // No valid filesystem yet (e.g. rootfs was never formatted);
+            // the installer's "format system" step creates it at LV size.
+            Log("lvm-migrate: no valid filesystem on rootfs, skipping"
+                " filesystem resize");
+        }
+        break;
+    }
+
+    case Strategy::NONAB_CREATE_ROOTFS: {
+        // Bring the system partition into the VG unless an interrupted run
+        // already did, then create rootfs. No mkfs: the installer's
+        // "format system" step creates the filesystem.
+        std::string sys = Resolve(plan.src);
+        std::string member_vg = android::base::Trim(
+                RunCmdOutput({"pvs", "--noheadings", "-o", "vg_name", sys}));
+        if (member_vg != kVg) {
+            if (plan.wipe_system && !WipeStart(plan.src)) {
+                Log("lvm-migrate: failed to wipe stale LVM label on "
+                    + plan.src);
+                rc = 1;
+                break;
+            }
+            if (RunOrLog({"pvcreate", "-y", sys}) != 0 ||
+                RunOrLog({"lvm", "vgextend", kVg, sys}) != 0) {
+                Log("lvm-migrate: extending VG onto system failed");
+                rc = 1;
+                break;
+            }
+        }
+        if (RunOrLog({"lvm", "lvcreate", "-y",
+                      "-L", std::to_string(required_mb) + "M",
+                      "-n", "rootfs", kVg}) != 0) {
+            Log("lvm-migrate: rootfs creation failed");
+            rc = 1;
         }
         break;
     }
