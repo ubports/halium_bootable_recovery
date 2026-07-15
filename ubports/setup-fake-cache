@@ -1,4 +1,5 @@
 #!/system/bin/sh
+exec > /dev/kmsg 2>&1
 
 exit_mounted() {
     setprop halium.datamount.done 1
@@ -10,16 +11,21 @@ true|1) : ;;
 *) exit_mounted 0 ;;
 esac
 
+USERDATA=/dev/block/by-name/userdata
+if abm is-multiboot; then
+    abm fixup-fstab
+    USERDATA=$(awk '$2=="/data" {print $1}' /etc/recovery.fstab)
+fi
 RETRY_COUNTER=0
 while [ $(( RETRY_COUNTER += 1 )) -le 3 ]; do
-    mount /dev/block/by-name/userdata /data > /dev/kmsg && break || sleep 1
+    mount $USERDATA /data && break || sleep 1
 done
 
 if [ $RETRY_COUNTER -eq 4 ]; then
-    echo "setup-fake-cache: reached maximum number of retries" > /dev/kmsg
+    echo "setup-fake-cache: reached maximum number of retries"
     exit_mounted 1
 fi
 
-mkdir /data/cache > /dev/kmsg
-mount -o bind /data/cache /cache > /dev/kmsg
+mkdir /data/cache
+mount -o bind /data/cache /cache
 exit_mounted 0

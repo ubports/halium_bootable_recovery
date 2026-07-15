@@ -1,0 +1,82 @@
+#!/system/bin/sh
+# shellcheck disable=SC3034,3060
+BOOTSET="" # e.g. "/dev/block/mmcblk0p1"
+UT_ROOTFS="" # e.g. "/dev/block/mmcblk0p2"
+UT_ROOTFS_REAL="" # e.g. "/dev/mmcblk0p2"
+UT_USERDATA="" # e.g. "/dev/block/mmcblk0p3"
+UT_USERDATA_REAL="" # e.g. "/dev/block/mmcblk0p3"
+UT_CONF="" # e.g. "/bootset/db/entries/rom0.conf"
+
+prepare_bootset() {
+    # TODO: support internal storage variant (algiz) with userdata-mapped blocks instead
+    # -> https://github.com/Android-Boot-Manager/droidboot_map_to_dm
+    BOOTSET="$(find /dev/block/ -name 'abm_settings' -printf '%l')"
+}
+
+is_multiboot() {
+    prepare_bootset
+    # shellcheck disable=SC2143 # always non-zero exit code on pre-GKI devices without bootconfig
+    [ "$(grep -e 'has_dualboot' -e 'hasdualboot' /proc/bootconfig /proc/cmdline 2>/dev/null)" ] && [ -b "$BOOTSET" ]
+}
+
+setup_bootset() {
+    prepare_bootset
+    mkdir -p /bootset
+    if ! mountpoint -q /bootset; then
+        if ! mount "$BOOTSET" /bootset; then
+            echo "abm: couldn't mount ABM bootset ($BOOTSET)"
+            exit 1
+        fi
+        bootset_just_mounted=1
+    fi
+    UT_CONF=$(i=$(</bootset/db/last_index); stat -c '%i %n' /bootset/db/entries/* | sort -V | awk "NR == $((i+1)) {print \$2}")
+    if ! grep -q '^xtype UT$' "$UT_CONF"; then
+        echo "abm: $UT_CONF doesn't appear to be an Ubuntu Touch entry (xtype)"
+        exit 1
+    fi
+    for x in $(</proc/cmdline); do
+        case ${x} in
+            systempart=*) UT_ROOTFS_REAL=${x#*=}; UT_ROOTFS=${UT_ROOTFS_REAL/\/dev/\/dev\/block} ;;
+            datapart=*) UT_USERDATA_REAL=${x#*=}; UT_USERDATA=${UT_USERDATA_REAL/\/dev/\/dev\/block} ;;
+        esac
+    done
+    if [ ! -b "$UT_ROOTFS" ] || [ ! -b "$UT_USERDATA" ]; then
+        echo "abm: UT rootfs ($UT_ROOTFS) or userdata ($UT_USERDATA) multi-boot partition doesn't exist"
+        exit 1
+    fi
+    if [ "$bootset_just_mounted" ]; then
+        setprop ro.build.ab_update true 2>/dev/null # show current A/B slot
+        setprop ro.abm.extra_cmdline "rootdelay=10 systempart=$UT_ROOTFS_REAL datapart=$UT_USERDATA_REAL"
+    fi
+}
+
+fixup_fstab() {
+    fstab=/etc/recovery.fstab
+    if ! is_multiboot; then
+        echo "abm: not multi-booted, leaving $fstab alone"
+        exit 0
+    fi
+
+    setup_bootset
+
+    echo "abm: tweaking $fstab for multi-boot rootfs ($UT_ROOTFS) & userdata ($UT_USERDATA)..."
+    real_userdata="$(awk '$2=="/data" {print $1}' $fstab)" # /dev/block/by-name/userdata
+    new_entry="$(awk "\$2==\"/data\" {\$1=\"$UT_USERDATA\"; print \$0}" $fstab)" # /dev/block/mmcblk0p3 /data ext4 ...
+    sed -i "/^${real_userdata//\//\\\/}/d" $fstab
+    echo "$new_entry" >> $fstab
+
+    real_system_mnt=$(grep "^[^#].*\(/mnt\)*/system\(_root\)* " $fstab | head -1 | awk '{print $2}') # /system
+    new_entry="$(awk "\$2==\"$real_system_mnt\" {\$1=\"$UT_ROOTFS\"; sub(\"slotselect,\",\"\",\$0); sub(\"logical,\",\"\",\$0); print \$0}" $fstab)"
+    sed -i "/ ${real_system_mnt//\//\\\/} /d" $fstab
+    echo "$new_entry" >> $fstab
+    exit 0
+}
+
+case "$1" in
+    "is-multiboot") is_multiboot; exit $? ;;
+    "fixup-fstab") fixup_fstab ;;
+esac
+setup_bootset
+case "$1" in
+    "print-conf") echo "$UT_CONF" ;;
+esac

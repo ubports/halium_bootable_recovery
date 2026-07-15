@@ -18,6 +18,14 @@ LOCAL_PATH := $(call my-dir)
 # ===============================
 
 include $(CLEAR_VARS)
+LOCAL_MODULE := abm
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_CLASS := EXECUTABLES
+LOCAL_MODULE_PATH := $(TARGET_RECOVERY_ROOT_OUT)/system/bin
+LOCAL_SRC_FILES := $(LOCAL_MODULE)
+include $(BUILD_PREBUILT)
+
+include $(CLEAR_VARS)
 LOCAL_MODULE := archive-master.tar.xz
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_CLASS := ETC

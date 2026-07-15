@@ -544,6 +544,11 @@ ensure_system_partition_size() {
     # Partition is too small - need to expand it
     echo "System partition is too small (${current_size_mb}MB < ${required_size_mb}MB)"
 
+    if abm is-multiboot; then
+        echo "Not expanding system partition due to detecting ABM multi-boot"
+        return 0
+    fi
+
     # Check if LVM expansion is enabled
     use_lvm=$(getprop ro.systemimage.use_lvm)
     if [ "$use_lvm" = "true" ] || [ "$use_lvm" = "1" ]; then
@@ -860,6 +865,24 @@ do
                 part=${2##/}
                 path=$1
 
+                if abm is-multiboot && [ -e "partitions/${part}.img" ] && [ -e "$path" ]; then
+                    case "$part" in
+                        *boot) # e.g. boot (kernel) + vendor_boot (kmods/recovery) & init_boot (halium) ramdisk fragments
+                            echo "Unpacking ${part}.img for multiboot..."
+                            unpackbootimg -i "partitions/${part}.img" >/dev/null
+                            rm "partitions/${part}.img"
+                            ;;
+                        vendor|system_dlkm|vendor_dlkm) # known partition images wanted in multiboot rootfs, follows usual logic
+                            path="$SYSTEM_MOUNTPOINT/var/lib/lxc/android/$part.img"
+                            [ -e "$path" ] || install -m664 /dev/null "$path"
+                            ;;
+                        *)
+                            echo "Ignoring $path update under ABM"
+                            rm "partitions/${part}.img"
+                            ;;
+                    esac
+                fi
+
                 if [ -e partitions/${part}.img ] && [ -e $path ]; then
                     if simgtest partitions/${part}.img 2>/dev/null; then
                         echo "Flashing sparse ${part} at ${path}"
@@ -878,6 +901,23 @@ do
                     rm partitions/${part}.img
                 fi
             done
+
+            # Handle kernel-related "partition" updates for multiboot when all unpacked
+            if [ -f boot.img-kernel ]; then
+                ut_conf="$(abm print-conf)" # e.g. "/bootset/db/entries/rom0.conf"
+                rom="/bootset/${ut_conf##*/}"; rom=${rom%.conf} # e.g. "/bootset/rom0"
+                echo "Updating multiboot kernel files for $rom..."
+                cp boot.img-kernel "$rom/zImage"
+                for ramdisk in "vendor_boot.img-vendor_ramdisk" "init_boot.img-ramdisk" "boot.img-ramdisk"; do
+                    [ -f $ramdisk ] && cat $ramdisk >> boot.img-final-ramdisk
+                done
+                cp boot.img-final-ramdisk "$rom/initrd.cpio.gz"
+                # shellcheck disable=SC3034
+                cmdline="$(<boot.img-cmdline) $(cat vendor_boot.img-vendor_cmdline 2>/dev/null) $(getprop ro.abm.extra_cmdline)"
+                sed -i "s:options .*:options ${cmdline# *}:" "$ut_conf"
+                sync
+                rm *boot.img-*
+            fi
 
             # Remove tarball to free up space, since device tarballs
             # extract partitions/blobs that might fill up cache,

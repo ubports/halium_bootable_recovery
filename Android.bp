@@ -196,6 +196,7 @@ cc_binary {
         "ueventd.rc.recovery",
 
         // ubports
+        "abm",
         "archive-master.tar.xz",
         "archive-master.tar.xz.asc",
         "busybox_recovery",
@@ -216,6 +217,7 @@ cc_binary {
         "simgtest_ubports",
         "system-image-upgrader",
         "tune2fs.recovery",
+        "unpackbootimg_ubports",
     ],
 }
 
