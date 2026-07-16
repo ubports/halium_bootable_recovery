@@ -20,18 +20,24 @@
 #include <linux/fs.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mount.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <functional>
+#include <string>
 #include <vector>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <android-base/strings.h>
 #include <fs_mgr/roots.h>
 #include <libdm/dm.h>
 
 #include "bootloader_message/bootloader_message.h"
 #include "install/snapshot_utils.h"
+#include "otautil/paths.h"
 #include "recovery_ui/ui.h"
 #include "recovery_utils/logging.h"
 #include "recovery_utils/roots.h"
@@ -39,6 +45,78 @@
 constexpr const char* CACHE_ROOT = "/cache";
 constexpr const char* DATA_ROOT = "/data";
 constexpr const char* METADATA_ROOT = "/metadata";
+
+// UBports: on LVM devices /data is the logical volume ubports/userdata and
+// the raw fstab partition is the volume group's PV; formatting the PV would
+// destroy the whole VG, including the OS rootfs LV. lvm-migrate
+// --wipe-userdata reformats the LV when the VG is healthy and rebuilds the
+// VG from scratch when it is broken; exit 3 means userdata is not
+// LVM-managed and the normal format path applies.
+constexpr const char* LVM_MIGRATE_BIN = "/system/bin/lvm-migrate";
+constexpr const char* SETUP_FAKE_CACHE_BIN = "/system/bin/setup-fake-cache";
+// Same log the boot-time migration writes (ubupdater/lvm_migration.h), so
+// the wipe run shows up in the view-logs menu alongside it.
+constexpr const char* LVM_MIGRATE_LOG = "/tmp/lvm-migrate.log";
+
+enum class LvmWipeResult { kNotLvm, kSuccess, kFailure };
+
+static bool IsMountPointMounted(const char* mount_point) {
+  std::string mounts;
+  // /proc/self/mounts, not /proc/mounts: the latter is a symlink, which
+  // ReadFileToString refuses to follow. An unreadable mount table counts as
+  // mounted so EnsureUnmounted() never lets a possibly-live LV reach mkfs.
+  if (!android::base::ReadFileToString("/proc/self/mounts", &mounts)) return true;
+  for (const auto& line : android::base::Split(mounts, "\n")) {
+    auto fields = android::base::Split(line, " ");
+    if (fields.size() >= 2 && fields[1] == mount_point) return true;
+  }
+  return false;
+}
+
+// WipeData's umount calls are fire-and-forget; a busy LV must never reach
+// mkfs. Success is decided by the mount table, never umount's return value.
+static bool EnsureUnmounted(const char* mount_point) {
+  for (int i = 0; i < 10; i++) {
+    if (!IsMountPointMounted(mount_point)) return true;
+    if (umount(mount_point) != 0) {
+      PLOG(WARNING) << "Failed to unmount " << mount_point;
+      sync();
+      usleep(500000);
+    }
+  }
+  return !IsMountPointMounted(mount_point);
+}
+
+static LvmWipeResult WipeLvmUserdata(RecoveryUI* ui) {
+  if (access(LVM_MIGRATE_BIN, X_OK) != 0) return LvmWipeResult::kNotLvm;
+
+  // The bind-mounted fake /cache keeps /data busy, so it goes first.
+  if (!EnsureUnmounted(CACHE_ROOT) || !EnsureUnmounted(DATA_ROOT)) {
+    ui->Print("Failed to unmount /data.\n");
+    return LvmWipeResult::kFailure;
+  }
+
+  int status = system(android::base::StringPrintf(
+      "%s --wipe-userdata >> %s 2>&1", LVM_MIGRATE_BIN, LVM_MIGRATE_LOG).c_str());
+  int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  if (rc == 3) return LvmWipeResult::kNotLvm;
+
+  // Remount /data and the fake /cache bind (idempotent) and persist the log
+  // even after a failure so the view-logs menu can show it.
+  system(android::base::StringPrintf(
+      "%s >> %s 2>&1", SETUP_FAKE_CACHE_BIN, LVM_MIGRATE_LOG).c_str());
+  std::string contents;
+  if (android::base::ReadFileToString(LVM_MIGRATE_LOG, &contents)) {
+    android::base::WriteStringToFile(contents, Paths::Get().lvm_migrate_log_file());
+  }
+
+  if (rc != 0) {
+    ui->Print("LVM userdata wipe failed.\n");
+    ui->Print("Please go to Advanced -> View recovery logs -> lvm-migrate.log\n");
+    return LvmWipeResult::kFailure;
+  }
+  return LvmWipeResult::kSuccess;
+}
 
 static bool EraseVolume(const char* volume, RecoveryUI* ui, std::string_view new_fstype) {
   LOG(INFO) << "Erasing volume " << volume << " with new filesystem type " << new_fstype;
@@ -145,7 +223,13 @@ bool WipeData(Device* device, bool keep_memtag_mode, std::string_view data_fstyp
   system("umount /cache");
   system("umount /data");
   if (success) {
-    success &= EraseVolume(DATA_ROOT, ui, data_fstype);
+    LvmWipeResult lvm = WipeLvmUserdata(ui);
+    if (lvm == LvmWipeResult::kNotLvm) {
+      success &= EraseVolume(DATA_ROOT, ui, data_fstype);
+    } else {
+      // data_fstype does not apply here: LVM userdata is always ext4.
+      success &= (lvm == LvmWipeResult::kSuccess);
+    }
     bool has_cache = volume_for_mount_point("/cache") != nullptr;
     if (has_cache) {
       success &= EraseVolume(CACHE_ROOT, ui, data_fstype);
