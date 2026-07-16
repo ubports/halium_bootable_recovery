@@ -34,6 +34,7 @@
 #include <otautil/paths.h>
 #include <otautil/sysutil.h>
 #include <recovery_ui/ui.h>
+#include <recovery_utils/roots.h>
 
 static const char* LVM_MIGRATE_BIN = "/system/bin/lvm-migrate";
 static const char* SETUP_FAKE_CACHE_BIN = "/system/bin/setup-fake-cache";
@@ -223,6 +224,9 @@ bool MaybeRunLvmMigration(RecoveryUI* ui) {
     ui->SetEnableReboot(true);
     if (ok && remounted) {
         LOG(INFO) << "lvm-migration: migration finished successfully";
+        // /data moved onto the userdata LV; reload the volume table (and
+        // the generated /etc/fstab) so the rest of this session uses it.
+        load_volume_table();
         ui->SetProgressType(RecoveryUI::EMPTY);
         ui->SetBackground(RecoveryUI::NONE);
         return true;
