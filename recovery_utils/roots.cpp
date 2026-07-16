@@ -82,11 +82,38 @@ FstabEntry* fstab_entry_for_mount_point_detect_fs(const std::string& path) {
   return found;
 }
 
+// UBports: after the LVM migration /data and /system live on the
+// ubports/userdata and ubports/rootfs logical volumes, while the device
+// fstab still names the raw partitions, which are now the volume group's
+// PVs. Point the entries at the LVs so mounts, formats and the generated
+// /etc/fstab hit the right device. Each volume is remapped only once its
+// LV exists (on A/B only rootfs ever does).
+static void update_lvm_volumes(Fstab* fstab_ptr) {
+  std::string use_lvm = android::base::GetProperty("ro.systemimage.use_lvm", "");
+  if (use_lvm != "true" && use_lvm != "1") return;
+
+  static const struct { const char* mount_point; const char* lv; } kLvmVolumes[] = {
+    { "/data", "/dev/ubports/userdata" },
+    { "/system", "/dev/ubports/rootfs" },
+    { "/system_root", "/dev/ubports/rootfs" },
+  };
+  for (const auto& vol : kLvmVolumes) {
+    if (access(vol.lv, F_OK) != 0) continue;  // not migrated (yet)
+    for (auto& entry : *fstab_ptr) {
+      if (entry.mount_point == vol.mount_point) {
+        entry.blk_device = vol.lv;
+      }
+    }
+  }
+}
+
 void load_volume_table() {
   if (!ReadDefaultFstab(&fstab)) {
     LOG(ERROR) << "Failed to read default fstab";
     return;
   }
+
+  update_lvm_volumes(&fstab);
 
   fstab.emplace_back(FstabEntry{
       .blk_device = "ramdisk",
