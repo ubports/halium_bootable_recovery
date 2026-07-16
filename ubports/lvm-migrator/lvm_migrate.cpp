@@ -23,6 +23,11 @@
 //
 // Pass --dry-run (-n) to inspect the device state and log the commands that
 // would be executed without modifying anything.
+//
+// Pass --wipe-userdata for a factory reset: userdata becomes expendable, so
+// its LV is reformatted in place when the VG is healthy, and states the
+// normal run refuses to touch (broken VG, orphaned PV, unrecognized
+// contents) are rebuilt from scratch.
 
 #include <cstdlib>
 #include <cstring>
@@ -56,6 +61,15 @@ static bool g_dry_run = false;
 // lvextend) end in Strategy::DONE despite requiring work.
 static bool g_check_only = false;
 static int g_pending_mutations = 0;
+
+// Factory-reset mode (--wipe-userdata): userdata holds nothing worth
+// preserving anymore, which lifts the protection rules normal planning
+// applies to it.
+static bool g_wipe_userdata = false;
+
+// Exit code telling the caller that userdata is not LVM-managed on this
+// device and should be formatted through the normal fstab path instead.
+static constexpr int kExitNotLvmManaged = 3;
 
 // Log to stderr and, when available, /dev/kmsg.
 static int g_kmsg_fd = -1;
@@ -327,6 +341,87 @@ static Layout DetectLayout() {
     if (!l.system_b.empty()) l.system_b_content = ProbeContent(l.system_b);
 
     return l;
+}
+
+// True when userdata is still in use: /data or /cache mounted, or the raw
+// partition / its LV serving as a mount source. mkfs and label wipes must
+// never run against a live filesystem even if the caller's umount failed.
+static bool UserdataInUse(const Layout& l, const std::string& vg) {
+    std::string mounts;
+    // /proc/self/mounts, not /proc/mounts: the latter is a symlink, which
+    // ReadFileToString refuses to follow.
+    if (!android::base::ReadFileToString("/proc/self/mounts", &mounts))
+        return true;
+    std::string raw = Resolve(l.userdata);
+    std::string lv = Resolve("/dev/" + vg + "/userdata");
+    for (const auto& line : android::base::Split(mounts, "\n")) {
+        auto fields = android::base::Split(line, " ");
+        if (fields.size() < 2) continue;
+        if (fields[1] == "/data" || fields[1] == "/cache") return true;
+        std::string src = Resolve(fields[0]);
+        if (src == raw || src == lv) return true;
+    }
+    return false;
+}
+
+// Factory reset: make userdata expendable and reformat it. Returns -1 to
+// continue with normal planning against the adjusted layout, or a process
+// exit code.
+static int PrepareWipeUserdata(Layout* l, const std::string& vg) {
+    if (l->userdata.empty()) {
+        Log("lvm-migrate: wipe-userdata: no userdata partition found");
+        return 1;
+    }
+    if (!g_dry_run && UserdataInUse(*l, vg)) {
+        Log("lvm-migrate: wipe-userdata: userdata is still mounted");
+        return 1;
+    }
+
+    // On A/B the VG only ever spans the system slots, so userdata stays a
+    // raw partition and the caller formats it. Clear a stray PV label first
+    // so no LVM signature survives the reformat.
+    if (l->is_ab) {
+        if (l->userdata_content == Content::PV && !WipeStart(l->userdata))
+            return 1;
+        return kExitNotLvmManaged;
+    }
+
+    if (VgExists(vg)) {
+        if (GetVgMissingPvCount(vg) == 0) {
+            RunOrLog({"vgchange", "-ay", vg}, /*count_mutation=*/false);
+            if (GetLvSize(vg, "userdata") > 0) {
+                Log("lvm-migrate: wipe-userdata: reformatting LV "
+                    + vg + "/userdata");
+                if (RunOrLog({"mkfs.ext4",
+                              "/dev/" + vg + "/userdata"}) != 0) {
+                    Log("lvm-migrate: wipe-userdata: mkfs failed");
+                    return 1;
+                }
+                // Normal planning still runs so a pending rootfs grow is
+                // finished in the same pass.
+                return -1;
+            }
+            // A healthy VG without a userdata LV is a partial-migration
+            // remnant; fall through and rebuild from scratch.
+        }
+        RunOrLog({"vgchange", "-an", vg}, /*count_mutation=*/false);
+    } else if (l->userdata_content == Content::EXT4) {
+        // Not migrated yet: a normal format is correct here and the next
+        // boot-time run keeps handling the migration itself.
+        return kExitNotLvmManaged;
+    }
+
+    // Broken VG, orphaned PV or unrecognized contents: the factory reset
+    // is the user's consent to sacrifice userdata, which is exactly what
+    // normal planning refuses without it. Clear the signature so the
+    // partition probes as blank and gets rebuilt.
+    if (!WipeStart(l->userdata)) {
+        Log("lvm-migrate: wipe-userdata: failed to wipe userdata");
+        return 1;
+    }
+    l->userdata_content =
+        g_dry_run ? Content::BLANK : ProbeContent(l->userdata);
+    return -1;
 }
 
 enum class Strategy {
@@ -667,12 +762,18 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--check" || arg == "-c") {
             g_check_only = true;
             g_dry_run = true;
+        } else if (arg == "--wipe-userdata") {
+            g_wipe_userdata = true;
         } else if (arg == "--help") {
-            std::cout << "Usage: lvm-migrate [--dry-run|-n] [--check|-c]\n"
+            std::cout << "Usage: lvm-migrate [--dry-run|-n] [--check|-c]"
+                         " [--wipe-userdata]\n"
                          "  --dry-run  inspect state and log the migration plan"
                          " without modifying anything\n"
                          "  --check    like --dry-run, but exit 0 if nothing to"
-                         " do, 2 if migration work is pending, 1 on error\n";
+                         " do, 2 if migration work is pending, 1 on error\n"
+                         "  --wipe-userdata  factory reset: reformat the"
+                         " userdata LV, rebuilding the VG when it is broken;"
+                         " exit 3 if userdata is not LVM-managed\n";
             return 0;
         } else {
             std::cerr << "Unknown argument: " << arg << "\n";
@@ -693,6 +794,7 @@ int main(int argc, char* argv[]) {
     std::string use_lvm = android::base::GetProperty("ro.systemimage.use_lvm", "");
     if (use_lvm != "true" && use_lvm != "1") {
         Log("lvm-migrate: not requested, skipping");
+        if (g_wipe_userdata) return kExitNotLvmManaged;
         SetDoneProperty();
         return 0;
     }
@@ -705,6 +807,7 @@ int main(int argc, char* argv[]) {
     }
     if (required_mb == 0) {
         Log("lvm-migrate: no target size set, nothing to do");
+        if (g_wipe_userdata) return kExitNotLvmManaged;
         SetDoneProperty();
         return 0;
     }
@@ -725,6 +828,12 @@ int main(int argc, char* argv[]) {
                      + ContentName(layout.system_b_content)
                : std::string())
         + " required_rootfs=" + std::to_string(required_mb) + " MB");
+
+    if (g_wipe_userdata) {
+        int wipe_rc = PrepareWipeUserdata(&layout, kVg);
+        if (wipe_rc >= 0) return wipe_rc;
+    }
+
     Plan plan = MakePlan(layout, kVg, required_mb);
 
     int rc = 0;
