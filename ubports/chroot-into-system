@@ -1,0 +1,42 @@
+#!/system/bin/sh
+
+# Unified recovery expects this path elsewhere (in fstab, maybe in code)
+SYSTEM=/mnt/system
+
+function mount_all {
+    mount $SYSTEM || echo "Failed to (re-)mount $SYSTEM, proceeding regardless."
+
+    # Mount a chrootable system
+    mount -t sysfs none $SYSTEM/sys
+    mount -o bind /proc $SYSTEM/proc
+    mount -o bind /dev $SYSTEM/dev
+    mount -o bind /dev/pts $SYSTEM/dev/pts
+
+    # Mount data with default + auto-detected configuration,
+    # the shortest command knows best how to mount userdata.
+    mount /data
+
+    # Set up minimal writable paths for accessing an encrypted /home/phablet
+    mount -o bind /data $SYSTEM/userdata
+    mount -o bind $SYSTEM/userdata/user-data $SYSTEM/home
+    mount -o bind $SYSTEM/userdata/system-data/var/lib/extrausers $SYSTEM/var/lib/extrausers
+
+    touch /tmp/all_mounted
+}
+
+function attempt_home_unlock {
+    STATUS="$(chroot $SYSTEM /usr/bin/fscrypt status /home/phablet)"
+
+    echo "$STATUS" | grep -q "is not encrypted" && \
+        return
+
+    echo "$STATUS" | grep -q "Unlocked: Yes" && \
+        return
+
+    chroot $SYSTEM /usr/bin/fscrypt unlock /home/phablet
+}
+
+[ ! -f /tmp/all_mounted ] && mount_all
+attempt_home_unlock
+
+PATH=/usr/sbin:/usr/bin:/bin:/sbin chroot $SYSTEM /bin/bash
