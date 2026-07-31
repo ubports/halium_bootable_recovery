@@ -1,27 +1,48 @@
 #!/system/bin/sh
 
+set -e
+
 # Unified recovery expects this path elsewhere (in fstab, maybe in code)
 SYSTEM=/mnt/system
 
-function mount_all {
-    mount $SYSTEM || echo "Failed to (re-)mount $SYSTEM, proceeding regardless."
+function mount_if_missing {
+    SOURCE=$1
+    MOUNTPOINT=$2
+    OPTIONS=$3
+
+    [ mountpoint -q $MOUNTPOINT ] && return
+
+    mount $OPTIONS $SOURCE $MOUNTPOINT || \
+        echo "Failed to mount $MOUNTPOINT, aborting." && \
+        exit 1
+}
+
+function mount_all_requirements {
+    mountpoint -q $SYSTEM || \
+        echo "Please mount your system partition in the recovery's Advanced Settings first." && \
+        exit 1
 
     # Mount a chrootable system
-    mount -t sysfs none $SYSTEM/sys
-    mount -o bind /proc $SYSTEM/proc
-    mount -o bind /dev $SYSTEM/dev
-    mount -o bind /dev/pts $SYSTEM/dev/pts
+    mount_if_missing none $SYSTEM/sys "-t sysfs"
+    mount_if_missing ubuntu-proc $SYSTEM/proc "-t proc"
+    mount_if_missing /dev $SYSTEM/dev "-o bind"
+    mount_if_missing /dev/pts $SYSTEM/dev/pts "-o bind"
 
     # Mount data with default + auto-detected configuration,
     # the shortest command knows best how to mount userdata.
-    mount /data
+    mount_if_missing "" /data ""
+
+    # Mount user's data partition into chroot
+    mount_if_missing /data $SYSTEM/userdata "-o bind"
 
     # Set up minimal writable paths for accessing an encrypted /home/phablet
-    mount -o bind /data $SYSTEM/userdata
-    mount -o bind $SYSTEM/userdata/user-data $SYSTEM/home
-    mount -o bind $SYSTEM/userdata/system-data/var/lib/extrausers $SYSTEM/var/lib/extrausers
-
-    touch /tmp/all_mounted
+    # and reading system and user logs off the journal.
+    [ -d $SYSTEM/userdata/user-data ] && \
+        mount_if_missing $SYSTEM/userdata/user-data $SYSTEM/home "-o bind"
+    [ -d $SYSTEM/userdata/system-data/var/lib/extrausers ] && \
+        mount_if_missing $SYSTEM/userdata/system-data/var/lib/extrausers $SYSTEM/var/lib/extrausers "-o bind"
+    [ -d $SYSTEM/userdata/system-data/var/log ] && \
+        mount_if_missing $SYSTEM/userdata/system-data/var/log $SYSTEM/var/log "-o bind"
 }
 
 function attempt_home_unlock {
@@ -36,7 +57,9 @@ function attempt_home_unlock {
     chroot $SYSTEM /usr/bin/fscrypt unlock /home/phablet
 }
 
-[ ! -f /tmp/all_mounted ] && mount_all
+mount_all_requirements
 attempt_home_unlock
 
-PATH=/usr/sbin:/usr/bin:/bin:/sbin chroot $SYSTEM /bin/bash
+# Done setting up environment, start chroot now
+export PATH=/usr/sbin:/usr/bin:/bin:/sbin
+chroot $SYSTEM /bin/bash
