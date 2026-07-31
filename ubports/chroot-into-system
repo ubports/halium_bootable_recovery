@@ -47,6 +47,8 @@ function mount_all_requirements {
         mount_if_missing $SYSTEM/userdata/system-data/var/lib/extrausers $SYSTEM/var/lib/extrausers "-o bind"
     [ -d $SYSTEM/userdata/system-data/var/log ] && \
         mount_if_missing $SYSTEM/userdata/system-data/var/log $SYSTEM/var/log "-o bind"
+    [ -d $SYSTEM/userdata/system-data/var/lib/systemd ] && \
+        mount_if_missing $SYSTEM/userdata/system-data/var/lib/systemd $SYSTEM/var/lib/systemd "-o bind"
 }
 
 function attempt_home_unlock {
@@ -66,4 +68,4 @@ attempt_home_unlock
 
 # Done setting up environment, start chroot now
 export PATH=/usr/sbin:/usr/bin:/bin:/sbin
-chroot $SYSTEM /bin/bash
+chroot $SYSTEM /bin/bash --login
