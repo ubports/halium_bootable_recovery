@@ -10,17 +10,21 @@ function mount_if_missing {
     MOUNTPOINT=$2
     OPTIONS=$3
 
-    [ mountpoint -q $MOUNTPOINT ] && return
+    if mountpoint -q $MOUNTPOINT; then
+        return
+    fi
 
-    mount $OPTIONS $SOURCE $MOUNTPOINT || \
-        echo "Failed to mount $MOUNTPOINT, aborting." && \
+    if ! mount $OPTIONS $SOURCE $MOUNTPOINT; then
+        echo "Failed to mount $MOUNTPOINT, aborting."
         exit 1
+    fi
 }
 
 function mount_all_requirements {
-    mountpoint -q $SYSTEM || \
-        echo "Please mount your system partition in the recovery's Advanced Settings first." && \
+    if ! mountpoint -q $SYSTEM; then
+        echo "Please mount your system partition in the recovery's Advanced Settings first."
         exit 1
+    fi
 
     # Mount a chrootable system
     mount_if_missing none $SYSTEM/sys "-t sysfs"
