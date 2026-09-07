@@ -660,6 +660,7 @@ change_menu:
             ui->Print("Virtual A/B: snapshot partitions creation failed.\n");
             break;
           }
+          map_logical_partitions();
           if (ensure_path_mounted_at(android::fs_mgr::GetSystemRoot(), "/mnt/system") != -1) {
             ui->Print("Mounted /mnt/system.\n");
             mounted = true;
