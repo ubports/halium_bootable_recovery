@@ -52,7 +52,7 @@ function mount_all_requirements {
 }
 
 function attempt_home_unlock {
-    STATUS="$(chroot $SYSTEM /usr/bin/fscrypt status /home/phablet)"
+    STATUS="$(chroot $SYSTEM /usr/bin/fscrypt status /home/phablet 2>&1 || true)"
 
     echo "$STATUS" | grep -q "is not encrypted" && \
         return
@@ -67,5 +67,4 @@ mount_all_requirements
 attempt_home_unlock
 
 # Done setting up environment, start chroot now
-export PATH=/usr/sbin:/usr/bin:/bin:/sbin
-chroot $SYSTEM /bin/bash --login
+chroot $SYSTEM /usr/bin/env PATH=/usr/sbin:/usr/bin:/bin:/sbin bash --login
