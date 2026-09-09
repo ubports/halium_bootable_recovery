@@ -7,3 +7,17 @@ if [ -e /sys/class/android_usb/android0/enable ]; then
 fi
 
 setprop sys.usb.configfs 1
+
+n=0
+while [ "$n" -lt 600 ]; do
+    for udc in /sys/class/udc/*; do
+        [ -e "$udc" ] || continue
+        case "${udc##*/}" in
+            dummy*) continue ;;
+        esac
+        setprop sys.usb.controller "${udc##*/}"
+        exit 0
+    done
+    n=$((n+1))
+    sleep 0.1 2>/dev/null || sleep 1
+done
