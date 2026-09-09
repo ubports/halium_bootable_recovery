@@ -199,6 +199,7 @@ cc_binary {
         "archive-master.tar.xz",
         "archive-master.tar.xz.asc",
         "busybox_recovery",
+        "chroot-into-system",
         "e2fsck.recovery",
         "gpg",
         "bsdtar-recovery",

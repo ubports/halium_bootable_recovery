@@ -1,0 +1,70 @@
+#!/system/bin/sh
+
+set -e
+
+# Unified recovery expects this path elsewhere (in fstab, maybe in code)
+SYSTEM=/mnt/system
+
+function mount_if_missing {
+    SOURCE=$1
+    MOUNTPOINT=$2
+    OPTIONS=$3
+
+    if mountpoint -q $MOUNTPOINT; then
+        return
+    fi
+
+    if ! mount $OPTIONS $SOURCE $MOUNTPOINT; then
+        echo "Failed to mount $MOUNTPOINT, aborting."
+        exit 1
+    fi
+}
+
+function mount_all_requirements {
+    if ! mountpoint -q $SYSTEM; then
+        echo "Please mount your system partition in the recovery's Advanced Settings first."
+        exit 1
+    fi
+
+    # Mount a chrootable system
+    mount_if_missing none $SYSTEM/sys "-t sysfs"
+    mount_if_missing ubuntu-proc $SYSTEM/proc "-t proc"
+    mount_if_missing /dev $SYSTEM/dev "-o bind"
+    mount_if_missing /dev/pts $SYSTEM/dev/pts "-o bind"
+
+    # Mount data with default + auto-detected configuration,
+    # the shortest command knows best how to mount userdata.
+    mount_if_missing "" /data ""
+
+    # Mount user's data partition into chroot
+    mount_if_missing /data $SYSTEM/userdata "-o bind"
+
+    # Set up minimal writable paths for accessing an encrypted /home/phablet
+    # and reading system and user logs off the journal.
+    [ -d $SYSTEM/userdata/user-data ] && \
+        mount_if_missing $SYSTEM/userdata/user-data $SYSTEM/home "-o bind"
+    [ -d $SYSTEM/userdata/system-data/var/lib/extrausers ] && \
+        mount_if_missing $SYSTEM/userdata/system-data/var/lib/extrausers $SYSTEM/var/lib/extrausers "-o bind"
+    [ -d $SYSTEM/userdata/system-data/var/log ] && \
+        mount_if_missing $SYSTEM/userdata/system-data/var/log $SYSTEM/var/log "-o bind"
+    [ -d $SYSTEM/userdata/system-data/var/lib/systemd ] && \
+        mount_if_missing $SYSTEM/userdata/system-data/var/lib/systemd $SYSTEM/var/lib/systemd "-o bind"
+}
+
+function attempt_home_unlock {
+    STATUS="$(chroot $SYSTEM /usr/bin/fscrypt status /home/phablet 2>&1 || true)"
+
+    echo "$STATUS" | grep -q "is not encrypted" && \
+        return
+
+    echo "$STATUS" | grep -q "Unlocked: Yes" && \
+        return
+
+    chroot $SYSTEM /usr/bin/fscrypt unlock /home/phablet
+}
+
+mount_all_requirements
+attempt_home_unlock
+
+# Done setting up environment, start chroot now
+chroot $SYSTEM /usr/bin/env PATH=/usr/sbin:/usr/bin:/bin:/sbin bash --login
