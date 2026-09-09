@@ -229,6 +229,7 @@ bool MaybeRunLvmMigration(RecoveryUI* ui) {
         load_volume_table();
         ui->SetProgressType(RecoveryUI::EMPTY);
         ui->SetBackground(RecoveryUI::NONE);
+        ui->Print("Storage migration to LVM finished.\n");
         return true;
     }
 
